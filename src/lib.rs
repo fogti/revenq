@@ -1,6 +1,39 @@
-use {atom::AtomSetOnce, triomphe::Arc};
+use std::sync::atomic::{AtomicPtr, Ordering};
+use std::{fmt, mem, ptr};
+use std::sync::Arc;
 
-type NextRevision<T> = Arc<AtomSetOnce<Box<RevisionNode<T>>>>;
+/// An AtomSetOnce wraps an AtomicPtr, it allows for safe mutation of an atomic
+/// into common Rust Types.
+struct AtomSetOnce<T>(AtomicPtr<T>);
+
+impl<T> fmt::Debug for AtomSetOnce<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "atom({:?})", self.0.load(Ordering::Relaxed))
+    }
+}
+
+impl<T> AtomSetOnce<T> {
+    /// Create a empty AtomSetOnce
+    fn empty() -> AtomSetOnce<T> {
+        AtomSetOnce(AtomicPtr::new(ptr::null_mut()))
+    }
+}
+
+impl<T> Drop for AtomSetOnce<T> {
+    fn drop(&mut self) {
+        unsafe {
+            let ptr = self.0.load(Ordering::Relaxed);
+            if !ptr.is_null() {
+                let _: Box<T> = Box::from_raw(ptr as *mut T);
+            }
+        }
+    }
+}
+
+unsafe impl<T> Send for AtomSetOnce<T> {}
+unsafe impl<T> Sync for AtomSetOnce<T> {}
+
+type NextRevision<T> = Arc<AtomSetOnce<RevisionNode<T>>>;
 
 #[derive(Clone)]
 struct RevisionNode<T: Clone> {
@@ -61,13 +94,21 @@ impl<T: Clone> Queue<T> {
         // threads concurrently append to the structure, just in case,
         // to avoid corruption of revisions
         loop {
-            revnode = latest.set_if_none(revnode.take().unwrap());
-            if revnode.is_none() {
+            let new = Box::into_raw(revnode.take().unwrap());
+            let old = latest
+                .0
+                .compare_and_swap(ptr::null_mut(), new, Ordering::AcqRel);
+            if old.is_null() {
                 break;
             }
+            revnode = Some(unsafe { Box::from_raw(new) });
 
-            // use the next revision
-            latest = Arc::clone(&latest.get().unwrap().next);
+            latest = {
+                // This is safe since ptr cannot be changed once it is set
+                // which means that this is now a Box.
+                // use the next revision
+                Arc::clone(&(unsafe { &*old }).next)
+            };
         }
     }
 
@@ -81,9 +122,19 @@ impl<T: Clone> Queue<T> {
 impl<T: Clone> QueueListener<T> {
     /// For each revision, applies a function to the list of new events.
     pub fn with<F: FnMut(&[T])>(&mut self, mut f: F) {
-        while let Some(x) = self.next.get() {
-            f(&x.data[..]);
-            self.next = Arc::clone(&x.next);
+        loop {
+            let ptr = self.next.0.load(Ordering::Acquire);
+            if ptr.is_null() {
+                break;
+            } else {
+                unsafe {
+                    // This is safe since ptr cannot be changed once it is set
+                    // which means that this is now a Arc or a Box.
+                    let x: &RevisionNode<T> = mem::transmute(&*ptr);
+                    f(&x.data[..]);
+                    self.next = Arc::clone(&x.next);
+                }
+            }
         }
     }
 }

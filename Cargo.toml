@@ -8,5 +8,3 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/YZITE/revenq"
 
 [dependencies]
-atom = "0.3"
-triomphe = "0.1"
