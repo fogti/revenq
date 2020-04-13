@@ -2,7 +2,7 @@ use crate::{Arc, PendingMap, Queue, QueueInterface};
 use std::sync::Mutex;
 use std::thread::{self, Thread, ThreadId};
 
-/// An event queue with the ability to wait for new events
+/// An event / revision queue with the ability to wait for new events
 pub struct WokeQueue<T> {
     inner: Queue<T>,
     wakers: Arc<Mutex<Vec<Thread>>>,
@@ -76,8 +76,10 @@ impl<T: Send + 'static> WokeQueue<T> {
         }
     }
 
-    /// Waits for an event on the WokeQueue, until at least one event
-    /// (or event block) got ready.
+    /// Similiar to [`with`](QueueInterface::with), but
+    /// waits for an event on the WokeQueue, until at least one event
+    /// (or event block) got ready. The return value of 'f' determines
+    /// if an event is considered ready/usable (`true` -> ready).
     pub fn with_blocking<F>(&mut self, mut f: F)
     where
         F: FnMut(&T) -> bool,
@@ -87,7 +89,8 @@ impl<T: Send + 'static> WokeQueue<T> {
         self.with_blocking_internal(got_anything, f);
     }
 
-    /// Waits for an event on the WokeQueue, until at least one event
+    /// Similiar to [`with`](QueueInterface::with), but
+    /// waits for an event on the WokeQueue, until at least one event
     /// (or event block) got ready. The return value of 'with_f' determines
     /// if an event is considered ready/usable (`true` -> ready).
     pub fn publish_with_blocking<F>(&mut self, pending: T, mut with_f: F)

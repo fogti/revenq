@@ -41,6 +41,7 @@ struct RevisionNode<T> {
     data: T,
 }
 
+/// A simple event / revision queue
 pub struct Queue<T> {
     // the $next field is partially shared, e.g. all queues derived from the same
     // original queue can find the current $next value, but may be a bit behind
@@ -68,9 +69,6 @@ impl<T> Default for Queue<T> {
 impl<T: Send + 'static> QueueInterface for Queue<T> {
     type Item = T;
 
-    /// This method publishes the pending event and finishes the revision,
-    /// while also calling a helper function for each skipped revision,
-    /// thus, no events are lost.
     fn publish_with<F>(&mut self, pending: T, mut with_f: F)
     where
         F: FnMut(PendingMap<'_, T>),
@@ -116,7 +114,6 @@ impl<T: Send + 'static> QueueInterface for Queue<T> {
         }
     }
 
-    /// For each revision, applies a function to the list of new events.
     fn with<F: FnMut(&T)>(&mut self, mut f: F) {
         loop {
             let ptr = self.next.0.load(Ordering::Acquire);
