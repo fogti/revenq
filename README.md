@@ -2,6 +2,9 @@
 
 A concurrent, revision-based event queue implementation.
 
+[![crates.io](https://img.shields.io/crates/v/revenq.svg)](https://crates.io/crates/revenq)
+[![docs.rs](https://docs.rs/revenq/badge.svg)](https://docs.rs/revenq)
+
 ## License
 
 Licensed under either of
