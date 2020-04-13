@@ -1,7 +1,7 @@
 [package]
 name = "revenq"
 description = "A concurrent, revision-based event queue implementation"
-version = "0.0.0"
+version = "0.0.1"
 authors = ["Erik Zscheile <zseri.devel@ytrizja.de>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"

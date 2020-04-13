@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicPtr, Ordering};
-use std::{fmt, mem, ptr};
 use std::sync::Arc;
+use std::{fmt, mem, ptr};
 
 /// An AtomSetOnce wraps an AtomicPtr, it allows for safe mutation of an atomic
 /// into common Rust Types.
@@ -179,6 +179,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn queue_multithreaded() {
         use std::{thread, time::Duration};
         let mut q = Queue::new();
