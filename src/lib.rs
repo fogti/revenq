@@ -9,18 +9,20 @@ to [send across threads](std::marker::Send), contain no depending lifetimes
 (due to limitations of [`AtomicPtr`](std::sync::atomic::AtomicPtr)).
 **/
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod utils;
 pub use utils::{RevisionDetachError, RevisionRef};
 
 mod queue;
 pub use queue::Queue;
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "woke-queue")] {
-        mod woke_queue;
-        pub use woke_queue::WokeQueue;
-    }
-}
+#[cfg(feature = "woke-queue")]
+mod woke_queue;
+
+#[cfg(feature = "woke-queue")]
+#[cfg_attr(docsrs, doc(cfg(feature = "woke-queue")))]
+pub use woke_queue::{WokeQueue, WokeQueueNextFuture};
 
 /// Common interface for all provided event / revision queues;
 /// implements the `Iterator` interface over newly published revisions.

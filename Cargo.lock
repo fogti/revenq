@@ -388,7 +388,6 @@ name = "revenq"
 version = "0.0.4"
 dependencies = [
  "async-task",
- "cfg-if",
  "criterion",
  "crossbeam-utils",
  "futures-core",

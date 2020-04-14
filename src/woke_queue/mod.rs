@@ -177,7 +177,7 @@ where
     T: Send + Unpin + 'static,
 {
     /// Similiar to [`WokeQueue::next_blocking`], but `async`.
-    /// Only returns task::Poll::Ready(None) if no other reference to the queue
+    /// Only returns `None` if no other reference to the queue
     /// exists anymore, thus, otherwise nothing could wake this up.
     #[inline(always)]
     pub fn next_async(&mut self) -> WokeQueueNextFuture<'_, T> {
