@@ -82,7 +82,8 @@ impl<T> RevisionRef<T> {
     }
 
     /// try to append revnode, if CAS succeeds, return None, otherwise:
-    /// return a RevisionRef for the failed CAS ptr, and the revnode.
+    /// return a RevisionRef for the failed CAS ptr, and the revnode;
+    /// set $latest to the next ptr
     pub(crate) fn new_cas(
         latest: &mut NextRevision<T>,
         revnode: Box<RevisionNode<T>>,
@@ -141,6 +142,7 @@ impl<T> RevisionRef<T> {
         Ok(())
     }
 
+    #[inline]
     pub(crate) fn next(&self) -> NextRevision<T> {
         Arc::clone(&unsafe { self.rptr.as_ref() }.next)
     }
