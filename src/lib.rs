@@ -33,6 +33,9 @@ pub trait QueueInterface:
         self.pending_mut().push_back(pending);
     }
 
+    /// This method allows direct access of the pending revisions queue.
+    fn pending(&self) -> &std::collections::VecDeque<Self::RevisionIn>;
+
     /// This method allows direct modification of the pending revisions queue.
     /// This is useful if you want to withdraw a revision
     /// based on newly received revisions.

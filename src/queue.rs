@@ -13,7 +13,7 @@ pub struct Queue<T> {
     next: NextRevision<T>,
 
     // currently pending revisions
-    pub(crate) pending: VecDeque<T>,
+    pending: VecDeque<T>,
 }
 
 impl<T> Clone for Queue<T> {
@@ -66,7 +66,7 @@ impl<T: Send + 'static> Iterator for Queue<T> {
             // continue publishing until another thread interrupts us
         }
 
-        assert!(self.pending.is_empty());
+        debug_assert!(self.pending.is_empty());
 
         RevisionRef::new(&self.next, Ordering::Relaxed).map(|x| {
             self.next = x.next();
@@ -77,6 +77,11 @@ impl<T: Send + 'static> Iterator for Queue<T> {
 
 impl<T: Send + 'static> QueueInterface for Queue<T> {
     type RevisionIn = T;
+
+    #[inline(always)]
+    fn pending(&self) -> &VecDeque<T> {
+        &self.pending
+    }
 
     #[inline(always)]
     fn pending_mut(&mut self) -> &mut VecDeque<T> {

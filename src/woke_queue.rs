@@ -46,11 +46,11 @@ impl<T: Send + 'static> Iterator for WokeQueue<T> {
     type Item = RevisionRef<T>;
 
     fn next(&mut self) -> Option<RevisionRef<T>> {
-        let orig_pending_len = self.inner.pending.len();
+        let orig_pending_len = self.pending().len();
         let ret = self.inner.next();
 
         // may have published something
-        if orig_pending_len != self.inner.pending.len() {
+        if orig_pending_len != self.pending().len() {
             notify_all(&mut self.wakers.lock().unwrap());
         }
 
@@ -60,6 +60,11 @@ impl<T: Send + 'static> Iterator for WokeQueue<T> {
 
 impl<T: Send + 'static> QueueInterface for WokeQueue<T> {
     type RevisionIn = T;
+
+    #[inline(always)]
+    fn pending(&self) -> &std::collections::VecDeque<T> {
+        self.inner.pending()
+    }
 
     #[inline(always)]
     fn pending_mut(&mut self) -> &mut std::collections::VecDeque<T> {
@@ -75,12 +80,12 @@ impl<T: Send + 'static> WokeQueue<T> {
     pub fn next_blocking(&mut self) -> Option<RevisionRef<T>> {
         loop {
             let mut wakers = self.wakers.lock().unwrap();
-            let orig_pending_len = self.inner.pending.len();
+            let orig_pending_len = self.inner.pending().len();
 
             let ret = self.inner.next();
 
             // may have published something
-            if orig_pending_len != self.inner.pending.len() {
+            if orig_pending_len != self.inner.pending().len() {
                 notify_all(&mut wakers);
             }
 
