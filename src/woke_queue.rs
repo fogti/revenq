@@ -48,8 +48,10 @@ impl<T: Send + 'static> QueueInterface for WokeQueue<T> {
     fn publish(&mut self, pending: T) -> Vec<RevisionRef<T>> {
         let ret = self.inner.publish(pending);
         let mut wakers = self.wakers.lock().unwrap();
+        let wakers = &mut *wakers;
         let ctid = current_thread_id();
-        for th in std::mem::take(&mut *wakers) {
+        let wcnt = wakers.len();
+        for th in std::mem::replace(wakers, Vec::with_capacity(wcnt)) {
             if th.id() != ctid {
                 th.unpark();
             }
