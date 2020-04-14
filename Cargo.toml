@@ -6,9 +6,17 @@ authors = ["Erik Zscheile <zseri.devel@ytrizja.de>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/YZITE/revenq"
+readme = "README.md"
 exclude = ["/.github/"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
+futures-core = "0.3"
+pin-utils = "0.1.0-alpha.4"
+async-task = "2.1.1"
+crossbeam-utils = "0.7.2"
 
 [dev-dependencies]
 criterion = "0.3"
