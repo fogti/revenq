@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use crate::{utils::*, QueueInterface, woke_queue::current_thread_id};
+use crate::{utils::*, QueueInterface};
 use std::{collections::VecDeque, sync::atomic::Ordering};
 
 /// A simple event / revision queue
@@ -53,28 +53,25 @@ impl<T: Send + 'static> Iterator for Queue<T> {
             if let Some((old, new)) =
                 RevisionRef::new_cas(&mut self.next, revnode, Ordering::AcqRel)
             {
-                println!("{:?} | publishing failed", current_thread_id());
                 // publishing failed
                 self.pending.push_front((*new).data);
 
                 // we discovered a new revision, return that
-                println!("{:?} | next() done = true | pending.is_empty() = {:?}", current_thread_id(), self.pending.is_empty());
                 return Some(old);
             }
 
-            println!("{:?} | publishing succeeded", current_thread_id());
             // publishing succeeded
             // RevisionRef::new_cas doesn't update self.next in that case
             self.next = latest;
             // continue publishing until another thread interrupts us
         }
 
-        let ret = RevisionRef::new(&self.next, Ordering::Relaxed).map(|x| {
+        assert!(self.pending.is_empty());
+
+        RevisionRef::new(&self.next, Ordering::Relaxed).map(|x| {
             self.next = x.next();
             x
-        });
-        println!("{:?} | next() done = {:?} | pending.is_empty() = {:?}", current_thread_id(), ret.is_some(), self.pending.is_empty());
-        ret
+        })
     }
 }
 
@@ -96,7 +93,12 @@ impl<T> Queue<T> {
 
 impl<T: std::fmt::Debug> Queue<T> {
     /// Helper function, prints all unprocessed, newly published revisions
-    pub fn print_debug<W: std::io::Write>(&self, mut writer: W, prefix: &str) -> std::io::Result<()> {
+    #[cold]
+    pub fn print_debug<W: std::io::Write>(
+        &self,
+        mut writer: W,
+        prefix: &str,
+    ) -> std::io::Result<()> {
         print_queue(&mut writer, Arc::clone(&self.next), prefix)?;
         writeln!(writer, "{} pending = {:?}", prefix, &self.pending)?;
         Ok(())

@@ -62,26 +62,24 @@ fn woke_queue_bench(c: &mut Criterion) {
 
     c.bench_function("woke-queue-blocking", |b| {
         b.iter(|| {
-            let spt = |mut q: WokeQueue<u32>, publiv: Vec<u32>| {
+            let spt = |mut q: WokeQueue<u32>, publiv: &[u32]| {
+                *q.pending_mut() = publiv.iter().map(|i| *i).collect();
+                let plvl = publiv.len();
                 thread::spawn(move || {
-                    let mut c = Vec::new();
-                    let plvl = publiv.len();
-                    for i in publiv {
-                        q.enqueue(i);
-                        c.extend((&mut q).map(|i| *i));
-                    }
+                    let mut c = Vec::with_capacity(plvl);
                     while c.len() < plvl {
                         if let Some(x) = q.next_blocking() {
                             c.push(*x);
                         }
                     }
+                    c.extend((&mut q).map(|i| *i));
                 })
             };
 
             let q1 = WokeQueue::new();
             let q2 = q1.clone();
-            let th1 = spt(q1, vec![1, 3]);
-            let th2 = spt(q2, vec![2, 4]);
+            let th1 = spt(q1, &[1, 3]);
+            let th2 = spt(q2, &[2, 4]);
             th1.join().unwrap();
             th2.join().unwrap();
         })

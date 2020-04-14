@@ -13,19 +13,31 @@ fn main() {
                     q.enqueue(i);
                 }
                 while c.len() < plvl {
-                    q.print_debug(std::io::stdout(), &format!("{:?} |+", std::thread::current().id())).unwrap();
+                    q.print_debug(
+                        std::io::stdout(),
+                        &format!("{:?} |+", std::thread::current().id()),
+                    )
+                    .unwrap();
                     match q.next_blocking() {
                         Some(x) => c.push(*x),
                         None => {
                             println!("{:?} | ouch; c = {:?}", std::thread::current().id(), c);
-                            q.print_debug(std::io::stdout(), &format!("{:?} |+", std::thread::current().id())).unwrap();
+                            q.print_debug(
+                                std::io::stdout(),
+                                &format!("{:?} |+", std::thread::current().id()),
+                            )
+                            .unwrap();
                             panic!();
                         }
                     }
                 }
                 c.extend((&mut q).map(|i| *i));
                 println!("{:?} | done; c = {:?}", std::thread::current().id(), c);
-                q.print_debug(std::io::stdout(), &format!("{:?} |+", std::thread::current().id())).unwrap();
+                q.print_debug(
+                    std::io::stdout(),
+                    &format!("{:?} |+", std::thread::current().id()),
+                )
+                .unwrap();
             })
         };
 

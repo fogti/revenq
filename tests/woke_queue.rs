@@ -15,14 +15,14 @@ fn blocking() {
             let plvl = publiv.len();
             for i in publiv {
                 q.enqueue(i);
-                //c.extend((&mut q).map(|i| *i));
             }
             while c.len() < plvl {
                 match q.next_blocking() {
                     Some(x) => c.push(*x),
-                    None => break, // ouch
+                    None => break,
                 }
             }
+            c.extend((&mut q).map(|i| *i));
             c
         })
     };

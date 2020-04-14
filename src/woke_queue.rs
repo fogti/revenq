@@ -95,7 +95,6 @@ impl<T: Send + 'static> WokeQueue<T> {
 
             // cancel if no one is listening
             if Arc::get_mut(&mut self.wakers).is_some() {
-                println!("canceled?!");
                 break None;
             }
             std::thread::park();
@@ -112,9 +111,20 @@ impl<T> WokeQueue<T> {
 
 impl<T: std::fmt::Debug> WokeQueue<T> {
     /// Helper function, prints all unprocessed, newly published revisions
-    pub fn print_debug<W: std::io::Write>(&self, mut writer: W, prefix: &str) -> std::io::Result<()> {
+    #[cold]
+    pub fn print_debug<W: std::io::Write>(
+        &self,
+        mut writer: W,
+        prefix: &str,
+    ) -> std::io::Result<()> {
         self.inner.print_debug(&mut writer, prefix)?;
-        writeln!(writer, "{} wakers = {:?} x{}", prefix, &self.wakers, Arc::strong_count(&self.wakers))?;
+        writeln!(
+            writer,
+            "{} wakers = {:?} x{}",
+            prefix,
+            &self.wakers,
+            Arc::strong_count(&self.wakers)
+        )?;
         Ok(())
     }
 }
@@ -133,7 +143,7 @@ fn notify_all(wakers: &mut std::sync::MutexGuard<'_, Vec<Thread>>) {
 // source: crossbeam-channel/src/waker.rs
 /// Returns the id of the current thread.
 #[inline]
-pub(crate) fn current_thread_id() -> ThreadId {
+fn current_thread_id() -> ThreadId {
     thread_local! {
         /// Cached thread-local id.
         static THREAD_ID: ThreadId = thread::current().id();

@@ -150,6 +150,7 @@ impl<T> RevisionRef<T> {
 }
 
 /// This is a helper function to debug queues.
+#[cold]
 pub fn print_queue<W, T>(mut writer: W, start: NextRevision<T>, prefix: &str) -> std::io::Result<()>
 where
     W: std::io::Write,
