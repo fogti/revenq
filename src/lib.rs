@@ -37,6 +37,13 @@ pub trait QueueInterface:
     /// This is useful if you want to withdraw a revision
     /// based on newly received revisions.
     fn pending_mut(&mut self) -> &mut std::collections::VecDeque<Self::RevisionIn>;
+
+    /// Discards all newly published revisions and enforces publishing
+    /// of our pending revisions.
+    #[inline(always)]
+    fn skip_and_publish(&mut self) {
+        while self.next().is_some() {}
+    }
 }
 
 pub mod prelude {

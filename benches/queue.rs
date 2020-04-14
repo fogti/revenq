@@ -6,11 +6,13 @@ fn queue_bench(c: &mut Criterion) {
     c.bench_function("queue-simple", |b| {
         b.iter(|| {
             let mut q = Queue::new();
-            q.publish(0);
+            q.enqueue(0);
+            q.skip_and_publish();
             let mut l = q.clone();
-            l.recv();
-            q.publish(1);
-            l.recv();
+            l.next();
+            q.enqueue(1);
+            q.skip_and_publish();
+            l.next();
         })
     });
 
@@ -20,9 +22,10 @@ fn queue_bench(c: &mut Criterion) {
             let mut l1 = q.clone();
             let mut l2 = q.clone();
 
-            q.publish(0);
-            l1.recv();
-            l2.recv();
+            q.enqueue(0);
+            q.skip_and_publish();
+            l1.next();
+            l2.next();
         })
     });
 }
@@ -34,11 +37,13 @@ fn woke_queue_bench(c: &mut Criterion) {
     c.bench_function("woke-queue-simple", |b| {
         b.iter(|| {
             let mut q = WokeQueue::new();
-            q.publish(0);
+            q.enqueue(0);
+            q.skip_and_publish();
             let mut l = q.clone();
-            l.recv();
-            q.publish(1);
-            l.recv();
+            l.next();
+            q.enqueue(1);
+            q.skip_and_publish();
+            l.next();
         })
     });
 
@@ -48,9 +53,10 @@ fn woke_queue_bench(c: &mut Criterion) {
             let mut l1 = q.clone();
             let mut l2 = q.clone();
 
-            q.publish(0);
-            l1.recv();
-            l2.recv();
+            q.enqueue(0);
+            q.skip_and_publish();
+            l1.next();
+            l2.next();
         })
     });
 
@@ -61,10 +67,13 @@ fn woke_queue_bench(c: &mut Criterion) {
                     let mut c = Vec::new();
                     let plvl = publiv.len();
                     for i in publiv {
-                        c.extend(q.publish(i).into_iter().map(|i| *i));
+                        q.enqueue(i);
+                        c.extend((&mut q).map(|i| *i));
                     }
                     while c.len() < plvl {
-                        c.extend(q.recv_blocking().into_iter().map(|i| *i));
+                        if let Some(x) = q.next_blocking() {
+                            c.push(*x);
+                        }
                     }
                 })
             };

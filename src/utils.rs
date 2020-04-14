@@ -46,6 +46,7 @@ pub struct RevisionNode<T> {
 ///
 /// Warning: Objects of this type must not be leaked, otherwise all future
 /// revisions will be leaked, too, and thus the memory of the queue is never freed.
+#[derive(Clone, Debug)]
 pub struct RevisionRef<T> {
     keep_alive: NextRevision<T>,
     // contract / invariant: rptr is valid as long as _keep_alive is valid
@@ -146,4 +147,20 @@ impl<T> RevisionRef<T> {
     pub(crate) fn next(&self) -> NextRevision<T> {
         Arc::clone(&unsafe { self.rptr.as_ref() }.next)
     }
+}
+
+/// This is a helper function to debug queues.
+pub fn print_queue<W, T>(mut writer: W, start: NextRevision<T>, prefix: &str) -> std::io::Result<()>
+where
+    W: std::io::Write,
+    T: fmt::Debug,
+{
+    let mut cur = start;
+    let mut cnt = 0;
+    while let Some(x) = RevisionRef::new(&cur, Ordering::Relaxed) {
+        writeln!(&mut writer, "{} {}. {:?}", prefix, cnt, &*x)?;
+        cur = x.next();
+        cnt += 1;
+    }
+    Ok(())
 }

@@ -30,6 +30,18 @@ impl<T> Default for WokeQueue<T> {
     }
 }
 
+impl<T> Drop for WokeQueue<T> {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.wakers) == 2 {
+            // there are no other senders out there...
+            if let Ok(mut wakers) = self.wakers.lock() {
+                // notify all hanging queues
+                notify_all(&mut wakers);
+            }
+        }
+    }
+}
+
 impl<T: Send + 'static> Iterator for WokeQueue<T> {
     type Item = RevisionRef<T>;
 
@@ -37,11 +49,9 @@ impl<T: Send + 'static> Iterator for WokeQueue<T> {
         let orig_pending_len = self.inner.pending.len();
         let ret = self.inner.next();
 
-        if ret.is_none() {
-            // may have published something
-            if orig_pending_len != self.inner.pending.len() {
-                notify_all(&mut self.wakers.lock().unwrap());
-            }
+        // may have published something
+        if orig_pending_len != self.inner.pending.len() {
+            notify_all(&mut self.wakers.lock().unwrap());
         }
 
         ret
@@ -63,25 +73,33 @@ impl<T: Send + 'static> WokeQueue<T> {
     /// (or event block) got ready.
     /// Only returns None if no other reference to the queue exists anymore
     pub fn next_blocking(&mut self) -> Option<RevisionRef<T>> {
-        while Arc::get_mut(&mut self.wakers).is_none() {
+        loop {
             let mut wakers = self.wakers.lock().unwrap();
             let orig_pending_len = self.inner.pending.len();
 
-            if let ret @ Some(_) = self.inner.next() {
-                return ret;
-            }
+            let ret = self.inner.next();
 
             // may have published something
             if orig_pending_len != self.inner.pending.len() {
                 notify_all(&mut wakers);
             }
 
+            // we got something, return
+            if ret.is_some() {
+                break ret;
+            }
+
             // put ourselves into the waiting list
             wakers.push(thread::current());
             std::mem::drop(wakers);
+
+            // cancel if no one is listening
+            if Arc::get_mut(&mut self.wakers).is_some() {
+                println!("canceled?!");
+                break None;
+            }
             std::thread::park();
         }
-        None
     }
 }
 
@@ -89,6 +107,15 @@ impl<T> WokeQueue<T> {
     #[inline(always)]
     pub fn new() -> Self {
         Default::default()
+    }
+}
+
+impl<T: std::fmt::Debug> WokeQueue<T> {
+    /// Helper function, prints all unprocessed, newly published revisions
+    pub fn print_debug<W: std::io::Write>(&self, mut writer: W, prefix: &str) -> std::io::Result<()> {
+        self.inner.print_debug(&mut writer, prefix)?;
+        writeln!(writer, "{} wakers = {:?} x{}", prefix, &self.wakers, Arc::strong_count(&self.wakers))?;
+        Ok(())
     }
 }
 
@@ -106,7 +133,7 @@ fn notify_all(wakers: &mut std::sync::MutexGuard<'_, Vec<Thread>>) {
 // source: crossbeam-channel/src/waker.rs
 /// Returns the id of the current thread.
 #[inline]
-fn current_thread_id() -> ThreadId {
+pub(crate) fn current_thread_id() -> ThreadId {
     thread_local! {
         /// Cached thread-local id.
         static THREAD_ID: ThreadId = thread::current().id();
