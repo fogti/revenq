@@ -14,6 +14,7 @@ impl<T> fmt::Debug for AtomSetOnce<T> {
 
 impl<T> AtomSetOnce<T> {
     /// Create a empty AtomSetOnce
+    #[inline]
     fn empty() -> AtomSetOnce<T> {
         AtomSetOnce(AtomicPtr::new(ptr::null_mut()))
     }
@@ -21,9 +22,9 @@ impl<T> AtomSetOnce<T> {
 
 impl<T> Drop for AtomSetOnce<T> {
     fn drop(&mut self) {
-        unsafe {
-            let ptr = self.0.load(Ordering::Relaxed);
-            if !ptr.is_null() {
+        let ptr = self.0.load(Ordering::Acquire);
+        if !ptr.is_null() {
+            unsafe {
                 let _: Box<T> = Box::from_raw(ptr as *mut T);
             }
         }
@@ -35,13 +36,14 @@ unsafe impl<T> Sync for AtomSetOnce<T> {}
 
 type NextRevision<T> = Arc<AtomSetOnce<RevisionNode<T>>>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct RevisionNode<T> {
     next: NextRevision<T>,
     data: T,
 }
 
 /// A simple event / revision queue
+#[derive(Debug)]
 pub struct Queue<T> {
     // the $next field is partially shared, e.g. all queues derived from the same
     // original queue can find the current $next value, but may be a bit behind
@@ -116,7 +118,7 @@ impl<T: Send + 'static> QueueInterface for Queue<T> {
 
     fn with<F: FnMut(&T)>(&mut self, mut f: F) {
         loop {
-            let ptr = self.next.0.load(Ordering::Acquire);
+            let ptr = self.next.0.load(Ordering::Relaxed);
             if ptr.is_null() {
                 break;
             } else {

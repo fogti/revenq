@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::thread::{self, Thread, ThreadId};
 
 /// An event / revision queue with the ability to wait for new events
+#[derive(Debug)]
 pub struct WokeQueue<T> {
     inner: Queue<T>,
     wakers: Arc<Mutex<Vec<Thread>>>,
@@ -17,10 +18,10 @@ impl<T> Clone for WokeQueue<T> {
     }
 }
 
-impl<T: Send + 'static> Default for WokeQueue<T> {
+impl<T> Default for WokeQueue<T> {
     fn default() -> Self {
         WokeQueue {
-            inner: Queue::new(),
+            inner: Queue::default(),
             wakers: Default::default(),
         }
     }
@@ -48,10 +49,9 @@ impl<T: Send + 'static> QueueInterface for WokeQueue<T> {
         F: FnMut(PendingMap<'_, T>),
     {
         self.inner.publish_with(pending, with_f);
-        let ctid = current_thread_id();
         let mut wakers = self.wakers.lock().unwrap();
-        let wakers = std::mem::take(&mut *wakers);
-        for th in wakers {
+        let ctid = current_thread_id();
+        for th in std::mem::take(&mut *wakers) {
             if th.id() != ctid {
                 th.unpark();
             }
@@ -65,17 +65,6 @@ impl<T: Send + 'static> QueueInterface for WokeQueue<T> {
 }
 
 impl<T: Send + 'static> WokeQueue<T> {
-    fn with_blocking_internal<F>(&mut self, mut got_anything: bool, mut f: F)
-    where
-        F: FnMut(&T) -> bool,
-    {
-        while !got_anything {
-            self.wakers.lock().unwrap().push(thread::current());
-            std::thread::park();
-            self.inner.with(|x| got_anything |= f(x));
-        }
-    }
-
     /// Similiar to [`with`](QueueInterface::with), but
     /// waits for an event on the WokeQueue, until at least one event
     /// (or event block) got ready. The return value of 'f' determines
@@ -85,8 +74,16 @@ impl<T: Send + 'static> WokeQueue<T> {
         F: FnMut(&T) -> bool,
     {
         let mut got_anything = false;
-        self.inner.with(|x| got_anything |= f(x));
-        self.with_blocking_internal(got_anything, f);
+        loop {
+            let mut wakers = self.wakers.lock().unwrap();
+            self.inner.with(|x| got_anything |= f(x));
+            if got_anything {
+                break;
+            }
+            wakers.push(thread::current());
+            std::mem::drop(wakers);
+            std::thread::park();
+        }
     }
 
     /// Similiar to [`with`](QueueInterface::with), but
@@ -99,6 +96,8 @@ impl<T: Send + 'static> WokeQueue<T> {
     {
         let mut got_anything = false;
         self.publish_with(pending, |pm| got_anything |= with_f(pm.current));
-        self.with_blocking_internal(got_anything, with_f);
+        if !got_anything {
+            self.with_blocking(with_f);
+        }
     }
 }
