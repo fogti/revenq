@@ -12,11 +12,16 @@ exclude = ["/.github/"]
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+default = ["woke-queue"]
+woke-queue = ["async-task", "crossbeam-utils", "futures-core", "pin-utils"]
+
 [dependencies]
-futures-core = "0.3"
-pin-utils = "0.1.0-alpha.4"
-async-task = "2.1.1"
-crossbeam-utils = "0.7.2"
+async-task = { version = "2.1", optional = true }
+cfg-if = "0.1"
+crossbeam-utils = { version = "0.7", optional = true }
+futures-core = { version = "0.3", optional = true }
+pin-utils = { version = "0.1.0-alpha.4", optional = true }
 
 [dev-dependencies]
 criterion = "0.3"
@@ -24,3 +29,11 @@ criterion = "0.3"
 [[bench]]
 name = "queue"
 harness = false
+
+[[example]]
+name = "woke_queue"
+required-features = ["woke-queue"]
+
+[[test]]
+name = "woke_queue"
+required-features = ["woke-queue"]

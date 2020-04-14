@@ -15,8 +15,12 @@ pub use utils::{RevisionDetachError, RevisionRef};
 mod queue;
 pub use queue::Queue;
 
-mod woke_queue;
-pub use woke_queue::WokeQueue;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "woke-queue")] {
+        mod woke_queue;
+        pub use woke_queue::WokeQueue;
+    }
+}
 
 /// Common interface for all provided event / revision queues;
 /// implements the `Iterator` interface over newly published revisions.
