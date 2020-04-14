@@ -1,4 +1,5 @@
-use crate::{Arc, Queue, QueueInterface, RevisionRef};
+use crate::utils::{Arc, RevisionRef};
+use crate::{Queue, QueueInterface};
 use std::sync::Mutex;
 use std::thread::{self, Thread, ThreadId};
 

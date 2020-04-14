@@ -9,10 +9,11 @@ to [send across threads](std::marker::Send), contain no depending lifetimes
 (due to limitations of [`AtomicPtr`](std::sync::atomic::AtomicPtr)).
 **/
 
-use std::sync::Arc;
+mod utils;
+pub use utils::{RevisionDetachError, RevisionRef};
 
 mod queue;
-pub use queue::{Queue, RevisionRef, RevisionDetachError};
+pub use queue::Queue;
 
 mod woke_queue;
 pub use woke_queue::WokeQueue;
