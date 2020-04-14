@@ -1,4 +1,4 @@
-use crate::{Arc, PendingMap, Queue, QueueInterface};
+use crate::{Arc, Queue, QueueInterface, RevisionRef};
 use std::sync::Mutex;
 use std::thread::{self, Thread, ThreadId};
 
@@ -44,11 +44,8 @@ fn current_thread_id() -> ThreadId {
 impl<T: Send + 'static> QueueInterface for WokeQueue<T> {
     type Item = T;
 
-    fn publish_with<F>(&mut self, pending: T, with_f: F)
-    where
-        F: FnMut(PendingMap<'_, T>),
-    {
-        self.inner.publish_with(pending, with_f);
+    fn publish(&mut self, pending: T) -> Vec<RevisionRef<T>> {
+        let ret = self.inner.publish(pending);
         let mut wakers = self.wakers.lock().unwrap();
         let ctid = current_thread_id();
         for th in std::mem::take(&mut *wakers) {
@@ -56,48 +53,29 @@ impl<T: Send + 'static> QueueInterface for WokeQueue<T> {
                 th.unpark();
             }
         }
+        ret
     }
 
     #[inline(always)]
-    fn with<F: FnMut(&T)>(&mut self, f: F) {
-        self.inner.with(f);
+    fn recv(&mut self) -> Vec<RevisionRef<T>> {
+        self.inner.recv()
     }
 }
 
 impl<T: Send + 'static> WokeQueue<T> {
-    /// Similiar to [`with`](QueueInterface::with), but
+    /// Similiar to [`recv`](QueueInterface::recv), but
     /// waits for an event on the WokeQueue, until at least one event
-    /// (or event block) got ready. The return value of 'f' determines
-    /// if an event is considered ready/usable (`true` -> ready).
-    pub fn with_blocking<F>(&mut self, mut f: F)
-    where
-        F: FnMut(&T) -> bool,
-    {
-        let mut got_anything = false;
+    /// (or event block) got ready.
+    pub fn recv_blocking(&mut self) -> Vec<RevisionRef<T>> {
         loop {
             let mut wakers = self.wakers.lock().unwrap();
-            self.inner.with(|x| got_anything |= f(x));
-            if got_anything {
-                break;
+            let ret = self.inner.recv();
+            if !ret.is_empty() {
+                return ret;
             }
             wakers.push(thread::current());
             std::mem::drop(wakers);
             std::thread::park();
-        }
-    }
-
-    /// Similiar to [`with`](QueueInterface::with), but
-    /// waits for an event on the WokeQueue, until at least one event
-    /// (or event block) got ready. The return value of 'with_f' determines
-    /// if an event is considered ready/usable (`true` -> ready).
-    pub fn publish_with_blocking<F>(&mut self, pending: T, mut with_f: F)
-    where
-        F: FnMut(&T) -> bool,
-    {
-        let mut got_anything = false;
-        self.publish_with(pending, |pm| got_anything |= with_f(pm.current));
-        if !got_anything {
-            self.with_blocking(with_f);
         }
     }
 }

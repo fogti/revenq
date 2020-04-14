@@ -11,12 +11,11 @@ to [send across threads](std::marker::Send), contain no depending lifetimes
 
 use std::sync::Arc;
 
-/// This struct contains the parameters for the `with_f` function,
-/// given to the [`QueueInterface::publish_with`] method.
-pub struct PendingMap<'a, T: 'static> {
-    pub current: &'a T,
-    pub pending: &'a mut T,
-}
+mod queue;
+pub use queue::{Queue, RevisionRef, RevisionDetachError};
+
+mod woke_queue;
+pub use woke_queue::WokeQueue;
 
 /// Common interface for all provided event / revision queues
 pub trait QueueInterface: Clone + Default {
@@ -27,66 +26,13 @@ pub trait QueueInterface: Clone + Default {
         Default::default()
     }
 
-    /// This method publishes the given pending revision,
-    /// while also calling a helper function for each otherwise skipped revision,
-    /// thus, no events are lost.
-    fn publish_with<F>(&mut self, pending: Self::Item, with_f: F)
-    where
-        F: FnMut(PendingMap<'_, Self::Item>);
+    /// This method publishes the pending revision and returns all skipped revisions.
+    fn publish(&mut self, pending: Self::Item) -> Vec<RevisionRef<Self::Item>>;
 
-    /// This method publishes the pending revision.
-    ///
-    /// # Usage Warning
-    /// Some revisons may be skipped when using this method.
-    /// The following code does probably not what you want
-    /// (e.g. some revisions may be lost):
-    /// ```
-    /// # use revenq::{prelude::*, Queue};
-    /// fn handler(x: &u32) {
-    ///     // user-specific code
-    /// }
-    ///
-    /// let mut q = Queue::<u32>::new();
-    /// let _q2 = Queue::clone(&q);
-    ///
-    /// // send _q2 to another thread, the other thread may publish revisions
-    /// q.with(handler);
-    ///
-    /// // the following call is practically a "safe" race-condition,
-    /// // e.g. some revisions may be skipped and are practically lost.
-    /// q.publish(0);
-    /// ```
-    ///
-    /// The following code/behavoir is probably more desired:
-    /// ```
-    /// # use revenq::{prelude::*, Queue};
-    /// fn handler(x: &u32) {
-    ///     // user-specific code
-    /// }
-    ///
-    /// let mut q = Queue::<u32>::new();
-    /// let _q2 = Queue::clone(&q);
-    ///
-    /// // send _q2 to another thread, the other thread may publish revisions
-    /// // the following call combines `with` and `publish` without the
-    /// // possibility of skipped revisions.
-    /// q.publish_with(0, |pm| handler(pm.current));
-    /// ```
-    #[inline(always)]
-    fn publish(&mut self, pending: Self::Item) {
-        self.publish_with(pending, |_| {});
-    }
-
-    /// Applies a function for each revision.
-    fn with<F: FnMut(&Self::Item)>(&mut self, f: F);
+    /// Returns a list of newly published revisions.
+    fn recv(&mut self) -> Vec<RevisionRef<Self::Item>>;
 }
 
 pub mod prelude {
     pub use crate::QueueInterface;
 }
-
-mod queue;
-pub use queue::Queue;
-
-mod woke_queue;
-pub use woke_queue::WokeQueue;

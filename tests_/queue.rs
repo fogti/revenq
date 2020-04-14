@@ -1,4 +1,9 @@
-use revenq::PendingMap;
+fn accumulate<T>(rv: Vec<revenq::RevisionRef<T>>) -> T
+where
+    T: Copy + std::iter::Sum,
+{
+    rv.into_iter().map(|i| *i).sum()
+}
 
 #[test]
 fn simple() {
@@ -7,13 +12,13 @@ fn simple() {
 
     let mut l = q.clone();
     let mut marker = Vec::new();
-    l.with(|evs| marker.extend(evs.iter().copied()));
+    marker.extend(l.recv().into_iter().map(|i| (*i).clone()).flatten());
     assert!(marker.is_empty());
 
     q.publish(vec![1]);
 
-    l.with(|evs| marker.extend(evs.iter().copied()));
-    assert_eq!(marker, &[1]);
+    marker.extend(l.recv().into_iter().map(|i| (*i).clone()).flatten());
+    assert_eq!(marker, [1]);
 }
 
 #[test]
@@ -22,14 +27,14 @@ fn multi() {
     let mut l1 = q.clone();
     let mut l2 = q.clone();
 
-    q.publish(vec![0]);
+    q.publish(0);
 
     let mut marker = Vec::new();
-    l1.with(|evs| marker.extend(evs.iter().copied()));
-    assert_eq!(marker, &[0]);
+    marker.extend(l1.recv().into_iter().map(|i| *i));
+    assert_eq!(marker, [0]);
     marker.clear();
-    l2.with(|evs| marker.extend(evs.iter().copied()));
-    assert_eq!(marker, &[0]);
+    marker.extend(l2.recv().into_iter().map(|i| *i));
+    assert_eq!(marker, [0]);
 }
 
 #[test]
@@ -42,16 +47,13 @@ fn multithreaded() {
         let mut lx = q.clone();
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(50));
-            let mut marker = 0;
-            lx.with(|evs| marker += evs);
+            let marker = accumulate(lx.recv());
             assert_eq!(marker, 1);
-            marker = 0;
             thread::sleep(Duration::from_millis(20));
-            lx.with(|evs| marker += evs);
+            let marker = accumulate(lx.recv());
             assert_eq!(marker, 2);
             thread::sleep(Duration::from_millis(40));
-            let mut marker = Vec::new();
-            lx.with(|evs| marker.push(*evs));
+            let marker: Vec<_> = lx.recv().into_iter().map(|i| *i).collect();
             assert_eq!(marker, &[3, 4]);
         })
     };
@@ -74,16 +76,12 @@ fn mp() {
     let mut q2 = q1.clone();
 
     let (mut c1, mut c2) = (0, 0);
-    let (mut cl1, mut cl2) = (
-        |pm: PendingMap<u32>| c1 += *pm.current,
-        |pm: PendingMap<u32>| c2 += *pm.current,
-    );
-    q1.publish_with(1, &mut cl1);
-    q2.publish_with(2, &mut cl2);
-    q1.publish_with(3, &mut cl1);
-    q2.publish_with(4, &mut cl2);
-    q1.with(|cur| c1 += *cur);
-    q2.with(|cur| c2 += *cur);
+    c1 += accumulate(q1.publish(1));
+    c2 += accumulate(q2.publish(2));
+    c1 += accumulate(q1.publish(3));
+    c2 += accumulate(q2.publish(4));
+    c1 += accumulate(q1.recv());
+    c2 += accumulate(q2.recv());
     assert_eq!(c1, 6);
     assert_eq!(c2, 4);
 }
@@ -99,10 +97,10 @@ fn mtmp() {
         thread::spawn(move || {
             let mut c = 0;
             for i in publiv {
-                q.publish_with(i, |pm: PendingMap<u32>| c += *pm.current);
+                c += accumulate(q.publish(i));
                 thread::sleep(Duration::from_millis(20));
             }
-            q.with(|cur| c += *cur);
+            c += accumulate(q.recv());
             c
         })
     };

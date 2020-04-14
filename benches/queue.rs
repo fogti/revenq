@@ -8,9 +8,9 @@ fn queue_bench(c: &mut Criterion) {
             let mut q = Queue::new();
             q.publish(0);
             let mut l = q.clone();
-            l.with(|_evs| {});
+            l.recv();
             q.publish(1);
-            l.with(|_evs| {});
+            l.recv();
         })
     });
 
@@ -21,8 +21,8 @@ fn queue_bench(c: &mut Criterion) {
             let mut l2 = q.clone();
 
             q.publish(0);
-            l1.with(|_evs| {});
-            l2.with(|_evs| {});
+            l1.recv();
+            l2.recv();
         })
     });
 }
@@ -36,9 +36,9 @@ fn woke_queue_bench(c: &mut Criterion) {
             let mut q = WokeQueue::new();
             q.publish(0);
             let mut l = q.clone();
-            l.with(|_evs| {});
+            l.recv();
             q.publish(1);
-            l.with(|_evs| {});
+            l.recv();
         })
     });
 
@@ -49,8 +49,8 @@ fn woke_queue_bench(c: &mut Criterion) {
             let mut l2 = q.clone();
 
             q.publish(0);
-            l1.with(|_evs| {});
-            l2.with(|_evs| {});
+            l1.recv();
+            l2.recv();
         })
     });
 
@@ -61,13 +61,10 @@ fn woke_queue_bench(c: &mut Criterion) {
                     let mut c = Vec::new();
                     let plvl = publiv.len();
                     for i in publiv {
-                        q.publish_with(i, |pm| c.push(*pm.current));
+                        c.extend(q.publish(i).into_iter().map(|i| *i));
                     }
                     while c.len() < plvl {
-                        q.with_blocking(|cur| {
-                            c.push(*cur);
-                            true
-                        });
+                        c.extend(q.recv_blocking().into_iter().map(|i| *i));
                     }
                 })
             };

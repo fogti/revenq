@@ -14,13 +14,10 @@ fn blocking() {
             let mut c = Vec::new();
             let plvl = publiv.len();
             for i in publiv {
-                q.publish_with(i, |pm| c.push(*pm.current));
+                c.extend(q.publish(i).into_iter().map(|i| *i));
             }
             while c.len() < plvl {
-                q.with_blocking(|cur| {
-                    c.push(*cur);
-                    true
-                });
+                c.extend(q.recv_blocking().into_iter().map(|i| *i));
             }
             c
         })
