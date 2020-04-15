@@ -25,7 +25,7 @@ impl<T> Drop for AtomSetOnce<T> {
         let ptr = *self.0.get_mut();
         if !ptr.is_null() {
             unsafe {
-                let _: Box<T> = Box::from_raw(ptr as *mut T);
+                let _: Box<T> = Box::from_raw(ptr);
             }
         }
     }
@@ -136,7 +136,7 @@ impl<T> RevisionRef<T> {
         // destroy old_next
         if !old_next.is_null() {
             unsafe {
-                let _: Box<T> = Box::from_raw(old_next as *mut T);
+                let _: Box<RevisionNode<T>> = Box::from_raw(old_next);
             }
         }
 

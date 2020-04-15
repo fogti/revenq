@@ -18,6 +18,8 @@ jobs:
       run: cargo build --verbose
     - name: Test
       run: cargo test
+    - name: Run rustfmt
+      run: cargo fmt -- --check
 
   miri:
     runs-on: ubuntu-latest
