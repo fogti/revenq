@@ -5,7 +5,7 @@ version = "0.0.4"
 authors = ["Erik Zscheile <zseri.devel@ytrizja.de>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/YZITE/revenq"
+repository = "https://github.com/reclutch-nursery/revenq"
 readme = "README.md"
 exclude = ["/.github/", "Cargo.toml"]
 
