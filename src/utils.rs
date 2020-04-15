@@ -31,8 +31,8 @@ impl<T> Drop for AtomSetOnce<T> {
     }
 }
 
-unsafe impl<T> Send for AtomSetOnce<T> {}
-unsafe impl<T> Sync for AtomSetOnce<T> {}
+unsafe impl<T: Send + 'static> Send for AtomSetOnce<T> {}
+unsafe impl<T: Sync + 'static> Sync for AtomSetOnce<T> {}
 
 pub type NextRevision<T> = Arc<AtomSetOnce<RevisionNode<T>>>;
 
@@ -48,9 +48,7 @@ pub struct RevisionNode<T> {
 /// revisions will be leaked, too, and thus the memory of the queue is never freed.
 #[derive(Clone, Debug)]
 pub struct RevisionRef<T> {
-    keep_alive: NextRevision<T>,
-    // contract / invariant: rptr is valid as long as _keep_alive is valid
-    rptr: ptr::NonNull<RevisionNode<T>>,
+    inner: NextRevision<T>,
 }
 
 /// Error indicating a failed [`RevisionRef::try_detach`] call.
@@ -68,17 +66,20 @@ impl std::error::Error for RevisionDetachError {}
 impl<T> std::ops::Deref for RevisionRef<T> {
     type Target = T;
 
+    #[inline]
     fn deref(&self) -> &T {
-        &unsafe { self.rptr.as_ref() }.data
+        &Self::deref_to_rn(self).data
     }
 }
 
 impl<T> RevisionRef<T> {
     pub(crate) fn new(nr: &NextRevision<T>, order: Ordering) -> Option<Self> {
-        let rptr = nr.0.load(order);
-        ptr::NonNull::new(rptr).map(|rptr| Self {
-            keep_alive: Arc::clone(&nr),
-            rptr,
+        ptr::NonNull::new(nr.0.load(order)).map(|rptr| {
+            let ret = Self {
+                inner: Arc::clone(&nr),
+            };
+            Self::check_against_rptr(&ret, rptr);
+            ret
         })
     }
 
@@ -94,16 +95,25 @@ impl<T> RevisionRef<T> {
         let old = latest.0.compare_and_swap(ptr::null_mut(), new, order);
         let rptr = ptr::NonNull::new(old)?;
         let real_old: &RevisionNode<T> = unsafe { rptr.as_ref() };
-        Some((
-            Self {
-                // This is safe since ptr cannot be changed once it is set
-                // which means that this is now a Box.
-                // use the next revision
-                keep_alive: mem::replace(latest, Arc::clone(&real_old.next)),
-                rptr,
-            },
-            unsafe { Box::from_raw(new) },
-        ))
+
+        let ret_self = Self {
+            // This is safe since ptr cannot be changed once it is set
+            // which means that this is now a Box.
+            // use the next revision
+            inner: mem::replace(latest, Arc::clone(&real_old.next)),
+        };
+        Self::check_against_rptr(&ret_self, rptr);
+        Some((ret_self, unsafe { Box::from_raw(new) }))
+    }
+
+    #[inline]
+    fn check_against_rptr(this: &Self, rptr: ptr::NonNull<RevisionNode<T>>) {
+        assert!(std::ptr::eq(&**this, &unsafe { rptr.as_ref() }.data));
+    }
+
+    #[inline]
+    fn deref_to_rn(this: &Self) -> &RevisionNode<T> {
+        unsafe { &*this.inner.0.load(Ordering::Relaxed) }
     }
 
     fn try_acquire_ownership(
@@ -123,14 +133,11 @@ impl<T> RevisionRef<T> {
     /// object long-term.
     pub fn try_detach(this: &mut Self) -> Result<(), RevisionDetachError> {
         // 1. get ownership over the revision we point at
-        let mut_this = *Self::try_acquire_ownership(&mut this.keep_alive)?;
-        //    take this chance and validate rptr
-        assert_eq!(mut_this, this.rptr.as_ptr());
+        let mut_this = *Self::try_acquire_ownership(&mut this.inner)?;
         let mut_this = unsafe { &mut *mut_this };
 
         // 2. make sure we have ownership over the next revision
         let mut_next = Self::try_acquire_ownership(&mut mut_this.next)?;
-
         let old_next = mem::replace(mut_next, ptr::null_mut());
 
         // destroy old_next
@@ -144,8 +151,8 @@ impl<T> RevisionRef<T> {
     }
 
     #[inline]
-    pub(crate) fn next(&self) -> NextRevision<T> {
-        Arc::clone(&unsafe { self.rptr.as_ref() }.next)
+    pub(crate) fn next(this: &Self) -> NextRevision<T> {
+        Arc::clone(&Self::deref_to_rn(this).next)
     }
 }
 
@@ -160,7 +167,7 @@ where
     let mut cnt = 0;
     while let Some(x) = RevisionRef::new(&cur, Ordering::Relaxed) {
         writeln!(&mut writer, "{} {}. {:?}", prefix, cnt, &*x)?;
-        cur = x.next();
+        cur = RevisionRef::next(&x);
         cnt += 1;
     }
     Ok(())

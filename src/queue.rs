@@ -69,7 +69,7 @@ impl<T: Send + 'static> Iterator for Queue<T> {
         debug_assert!(self.pending.is_empty());
 
         RevisionRef::new(&self.next, Ordering::Relaxed).map(|x| {
-            self.next = x.next();
+            self.next = RevisionRef::next(&x);
             x
         })
     }
