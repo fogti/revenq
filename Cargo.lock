@@ -385,7 +385,7 @@ checksum = "7fe5bd57d1d7414c6b5ed48563a2c855d995ff777729dcd91c369ec7fea395ae"
 
 [[package]]
 name = "revenq"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "async-task",
  "criterion",
