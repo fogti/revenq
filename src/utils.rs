@@ -116,37 +116,22 @@ impl<T> RevisionRef<T> {
         unsafe { &*this.inner.0.load(Ordering::Relaxed) }
     }
 
-    fn try_acquire_ownership(
-        this: &mut NextRevision<T>,
-    ) -> Result<&mut *mut RevisionNode<T>, RevisionDetachError> {
-        // get ownership over the Arc of revision $this
-        let ptr_this = Arc::get_mut(this).ok_or(RevisionDetachError)?;
-        // no other reference to *us* exists.
-        // we need to be sure that we are the *only node with access to next*
-        Ok(ptr_this.0.get_mut())
-    }
-
     /// Try to detach this revision from the following.
-    /// Only works if this `RevisionRef` is the last reference to this revision,
-    /// and the same is true for the following revision.
+    /// Only works if this `RevisionRef` is the last reference to this revision.
+    /// This is the case if no RevisionRef to a revision with precedes this
+    /// revision exist and this is the last ptr to this revision, and all queue
+    /// references have already consumed this revision.
     /// Use this method to reduce queue memory usage if you want to store this
     /// object long-term.
     pub fn try_detach(this: &mut Self) -> Result<(), RevisionDetachError> {
-        // 1. get ownership over the revision we point at
-        let mut_this = *Self::try_acquire_ownership(&mut this.inner)?;
-        let mut_this = unsafe { &mut *mut_this };
-
-        // 2. make sure we have ownership over the next revision
-        let mut_next = Self::try_acquire_ownership(&mut mut_this.next)?;
-        let old_next = mem::replace(mut_next, ptr::null_mut());
-
-        // destroy old_next
-        if !old_next.is_null() {
-            unsafe {
-                let _: Box<RevisionNode<T>> = Box::from_raw(old_next);
-            }
-        }
-
+        // get ownership over the Arc of revision $this.inner
+        let ptr_this = Arc::get_mut(&mut this.inner).ok_or(RevisionDetachError)?;
+        // no other reference to *us* exists.
+        // the following is safe because we know that we point to valid data
+        // (with lifetime = as long as $this.inner exists with the current Arc)
+        let mut_this: &mut RevisionNode<T> = unsafe { &mut **ptr_this.0.get_mut() };
+        // override our $next ptr, thus decoupling this node from the following
+        mut_this.next = Arc::new(AtomSetOnce::empty());
         Ok(())
     }
 

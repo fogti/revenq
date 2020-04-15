@@ -43,6 +43,7 @@ fn multi() {
     assert_eq!(marker, [0, 1]);
     // detach fi
     assert!(revenq::RevisionRef::try_detach(&mut fi).is_ok());
+    assert_eq!(*fi, 0);
 }
 
 #[test]
