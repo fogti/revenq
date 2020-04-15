@@ -23,6 +23,11 @@ crossbeam-utils = { version = "0.7", optional = true }
 futures-core = { version = "0.3", optional = true }
 pin-utils = { version = "0.1.0-alpha.4", optional = true }
 
+[dependencies.stable_deref_trait]
+version = "1"
+default-features = false
+optional = true
+
 [dev-dependencies]
 criterion = "0.3"
 

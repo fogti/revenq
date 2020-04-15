@@ -46,7 +46,7 @@ pub struct RevisionNode<T> {
 ///
 /// Warning: Objects of this type must not be leaked, otherwise all future
 /// revisions will be leaked, too, and thus the memory of the queue is never freed.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct RevisionRef<T> {
     inner: NextRevision<T>,
 }
@@ -63,14 +63,30 @@ impl fmt::Display for RevisionDetachError {
 
 impl std::error::Error for RevisionDetachError {}
 
+impl<T> Clone for RevisionRef<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
 impl<T> std::ops::Deref for RevisionRef<T> {
     type Target = T;
 
     #[inline]
     fn deref(&self) -> &T {
+        // This pointer should never change once RevisionRef is created until
+        // it's dropped.
         &Self::deref_to_rn(self).data
     }
 }
+
+#[cfg(feature = "stable_deref_trait")]
+unsafe impl<T> stable_deref_trait::StableDeref for RevisionRef<T> {}
+
+#[cfg(feature = "stable_deref_trait")]
+unsafe impl<T> stable_deref_trait::CloneStableDeref for RevisionRef<T> {}
 
 impl<T> RevisionRef<T> {
     pub(crate) fn new(nr: &NextRevision<T>, order: Ordering) -> Option<Self> {
