@@ -27,17 +27,22 @@ fn simple() {
 fn multi() {
     let mut q = Queue::new();
     let l1 = q.clone();
-    let l2 = q.clone();
+    let mut l2 = q.clone();
 
     q.enqueue(0);
+    q.enqueue(1);
     q.skip_and_publish();
 
     let mut marker = Vec::new();
     marker.extend(l1.map(|i| *i));
-    assert_eq!(marker, [0]);
+    assert_eq!(marker, [0, 1]);
     marker.clear();
+    let mut fi = l2.next().unwrap();
+    marker.push(*fi);
     marker.extend(l2.map(|i| *i));
-    assert_eq!(marker, [0]);
+    assert_eq!(marker, [0, 1]);
+    // detach fi
+    assert!(revenq::RevisionRef::try_detach(&mut fi).is_ok());
 }
 
 #[test]
