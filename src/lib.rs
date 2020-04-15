@@ -9,6 +9,7 @@ to [send across threads](std::marker::Send), contain no depending lifetimes
 (due to limitations of [`AtomicPtr`](std::sync::atomic::AtomicPtr)).
 **/
 
+#![deny(clippy::as_conversions, clippy::cast_ptr_alignment, trivial_casts)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod utils;
