@@ -1,12 +1,10 @@
 use super::WokeQueue;
-use crate::utils::RevisionRef;
 use crossbeam_utils::sync::Parker;
 use futures_core::future::FusedFuture;
 use futures_core::stream::FusedStream;
-use std::future::Future;
-use std::{marker::Unpin, pin::Pin, task};
-
-pub use std::task::Waker;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Poll, Waker};
+use std::{future::Future, marker::Unpin, pin::Pin};
 
 // source: https://github.com/rust-lang/futures-rs/blob/master/futures-util/src/stream/stream/next.rs
 #[derive(Debug)]
@@ -26,19 +24,41 @@ impl<T: Send + Unpin + 'static> Future for WokeQueueNextFuture<'_, T>
 where
     T: Send + Unpin + 'static,
 {
-    type Output = Option<RevisionRef<T>>;
+    type Output = Option<<WokeQueue<T> as Iterator>::Item>;
 
     #[inline]
-    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         futures_core::stream::Stream::poll_next(Pin::new(self.get_mut().0), cx)
     }
 }
 
-pub fn notify_all(wakers: &mut std::sync::MutexGuard<'_, Vec<Waker>>) {
-    let wakers: &mut Vec<_> = &mut *wakers;
-    let wcnt = wakers.len();
-    for i in std::mem::replace(wakers, Vec::with_capacity(wcnt)) {
-        i.wake();
+#[derive(Debug)]
+pub struct WakeEntry {
+    active: AtomicBool,
+    waker: Waker,
+}
+
+impl WakeEntry {
+    #[inline]
+    pub fn new(waker: Waker) -> Self {
+        Self {
+            active: AtomicBool::new(true),
+            waker,
+        }
+    }
+
+    #[inline]
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    pub fn wake_by_ref(&self) {
+        // check if entry was already consumed
+        if self.active.compare_and_swap(true, false, Ordering::AcqRel) == true {
+            // we can consume this entry, it wasn't already consumed
+            self.waker.wake_by_ref();
+        }
     }
 }
 
@@ -64,13 +84,13 @@ pub fn block_on<F: Future>(future: F) -> F::Output {
         let (parker, waker) = &mut *cache.try_borrow_mut().expect("recursive `block_on`");
 
         // Create the task context.
-        let cx = &mut task::Context::from_waker(&waker);
+        let cx = &mut Context::from_waker(&waker);
 
         // Keep polling the future until completion.
         loop {
             match future.as_mut().poll(cx) {
-                task::Poll::Ready(output) => return output,
-                task::Poll::Pending => parker.park(),
+                Poll::Ready(output) => return output,
+                Poll::Pending => parker.park(),
             }
         }
     })

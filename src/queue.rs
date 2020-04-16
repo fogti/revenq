@@ -10,7 +10,7 @@ pub struct Queue<T> {
     // original queue can find the current $next value, but may be a bit behind
     // (e.g. have unconsumed revisions,
     //  which should be iterated to get the current value)
-    next: NextRevision<T>,
+    pub(crate) next: NextRevision<T>,
 
     // currently pending revisions
     pending: VecDeque<T>,
@@ -77,6 +77,15 @@ impl<T: Send + 'static> Iterator for Queue<T> {
 
 impl<T: Send + 'static> QueueInterface for Queue<T> {
     type RevisionIn = T;
+
+    #[inline(always)]
+    fn has_listeners(&mut self) -> bool {
+        match next_mut_of(&mut self.next) {
+            Ok(Some(_)) => true,
+            Ok(None) => false,
+            Err(_) => true,
+        }
+    }
 
     #[inline(always)]
     fn pending(&self) -> &VecDeque<T> {

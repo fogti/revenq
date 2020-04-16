@@ -13,7 +13,7 @@ to [send across threads](std::marker::Send), contain no depending lifetimes
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod utils;
-pub use utils::{RevisionDetachError, RevisionRef};
+pub use utils::{MappedRevisionRef, RevisionDetachError, RevisionRef, RevisionRefTrait};
 
 mod queue;
 pub use queue::Queue;
@@ -27,8 +27,9 @@ pub use woke_queue::{WokeQueue, WokeQueueNextFuture};
 
 /// Common interface for all provided event / revision queues;
 /// implements the `Iterator` interface over newly published revisions.
-pub trait QueueInterface:
-    Clone + Default + Iterator<Item = RevisionRef<<Self as QueueInterface>::RevisionIn>>
+pub trait QueueInterface: Clone + Default + Iterator
+where
+    <Self as Iterator>::Item: RevisionRefTrait,
 {
     type RevisionIn: Send + 'static;
 
@@ -40,6 +41,13 @@ pub trait QueueInterface:
         self.pending_mut().push_back(pending);
     }
 
+    /// Checks if any possible listener can receive messages from us.
+    ///
+    /// Needs mutable access because the user shouldn't be able to clone this instance.
+    fn has_listeners(&mut self) -> bool;
+
+    // TODO(zserik): Maybe replace the pending*() methods with something
+    // with lower overhead in book-keeping (this does incur an active cost in WokeQueue)
     /// This method allows direct access of the pending revisions queue.
     fn pending(&self) -> &std::collections::VecDeque<Self::RevisionIn>;
 

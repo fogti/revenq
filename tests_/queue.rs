@@ -1,4 +1,4 @@
-fn accumulate<T>(rv: &mut impl Iterator<Item = revenq::RevisionRef<T>>) -> T
+fn accumulate<T>(rv: &mut impl Iterator<Item = impl revenq::RevisionRefTrait<Target = T>>) -> T
 where
     T: Copy + std::iter::Sum,
 {
@@ -42,7 +42,7 @@ fn multi() {
     marker.extend(l2.map(|i| *i));
     assert_eq!(marker, [0, 1]);
     // detach fi
-    assert!(revenq::RevisionRef::try_detach(&mut fi).is_ok());
+    assert!(revenq::RevisionRefTrait::try_detach(&mut fi).is_ok());
     assert_eq!(*fi, 0);
 }
 

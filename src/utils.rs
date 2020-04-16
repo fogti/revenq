@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicPtr, Ordering};
 pub use std::sync::Arc;
-use std::{fmt, mem, ptr};
+use std::{fmt, mem, ops::Deref, ptr};
 
 /// An AtomSetOnce wraps an AtomicPtr, it allows for safe mutation of an atomic
 /// into common Rust Types.
@@ -42,6 +42,27 @@ pub struct RevisionNode<T> {
     pub(crate) data: T,
 }
 
+/// Trait abstracting over owning reference types pointing to a revision
+pub trait RevisionRefTrait: Deref + Sized {
+    /// Try to detach this revision from the following.
+    /// Only works if this `RevisionRef` is the last reference to this revision.
+    /// This is the case if no RevisionRef to a revision with precedes this
+    /// revision exist and this is the last ptr to this revision, and all queue
+    /// references have already consumed this revision.
+    /// Use this method to reduce queue memory usage if you want to store this
+    /// object long-term.
+    fn try_detach(this: &mut Self) -> Result<(), RevisionDetachError>;
+
+    /// Maps the value (the revision derefs to) to a sub-reference
+    #[inline(always)]
+    fn map<U, F>(this: Self, mapfn: F) -> MappedRevisionRef<Self, F>
+    where
+        F: Fn(&<Self as Deref>::Target) -> &U,
+    {
+        MappedRevisionRef { inner: this, mapfn }
+    }
+}
+
 /// A owning reference to a revision.
 ///
 /// Warning: Objects of this type must not be leaked, otherwise all future
@@ -71,7 +92,7 @@ impl<T> Clone for RevisionRef<T> {
     }
 }
 
-impl<T> std::ops::Deref for RevisionRef<T> {
+impl<T> Deref for RevisionRef<T> {
     type Target = T;
 
     #[inline]
@@ -132,28 +153,75 @@ impl<T> RevisionRef<T> {
         unsafe { &*this.inner.0.load(Ordering::Relaxed) }
     }
 
-    /// Try to detach this revision from the following.
-    /// Only works if this `RevisionRef` is the last reference to this revision.
-    /// This is the case if no RevisionRef to a revision with precedes this
-    /// revision exist and this is the last ptr to this revision, and all queue
-    /// references have already consumed this revision.
-    /// Use this method to reduce queue memory usage if you want to store this
-    /// object long-term.
-    pub fn try_detach(this: &mut Self) -> Result<(), RevisionDetachError> {
-        // get ownership over the Arc of revision $this.inner
-        let ptr_this = Arc::get_mut(&mut this.inner).ok_or(RevisionDetachError)?;
-        // no other reference to *us* exists.
-        // the following is safe because we know that we point to valid data
-        // (with lifetime = as long as $this.inner exists with the current Arc)
-        let mut_this: &mut RevisionNode<T> = unsafe { &mut **ptr_this.0.get_mut() };
-        // override our $next ptr, thus decoupling this node from the following
-        mut_this.next = Arc::new(AtomSetOnce::empty());
-        Ok(())
-    }
-
     #[inline]
     pub(crate) fn next(this: &Self) -> NextRevision<T> {
         Arc::clone(&Self::deref_to_rn(this).next)
+    }
+}
+
+#[inline]
+pub fn next_mut_of<T>(
+    this: &mut NextRevision<T>,
+) -> Result<Option<&mut NextRevision<T>>, RevisionDetachError> {
+    // get ownership over the Arc of revision $this.inner
+    let ptr_this = Arc::get_mut(this).ok_or(RevisionDetachError)?;
+    // no other reference to *us* exists.
+    // in case of RevisionRef:
+    // the following is safe because we know that we point to valid data
+    // (with lifetime = as long as $this.inner exists with the current Arc)
+    Ok(if let Some(x) = unsafe { ptr_this.0.get_mut().as_mut() } {
+        let mut_this: &mut RevisionNode<T> = x;
+        Some(&mut mut_this.next)
+    } else {
+        // this code may be run on a Queue, and thus not be a valid RevisionRef
+        None
+    })
+}
+
+impl<T> RevisionRefTrait for RevisionRef<T> {
+    fn try_detach(this: &mut Self) -> Result<(), RevisionDetachError> {
+        let mut_next = next_mut_of(&mut this.inner)?;
+        // override our $next ptr, thus decoupling this node from the following
+        *mut_next.expect("revenq internal error: revision ref contract violated") =
+            Arc::new(AtomSetOnce::empty());
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MappedRevisionRef<T, F> {
+    inner: T,
+    mapfn: F,
+}
+
+impl<T, U, F> Deref for MappedRevisionRef<T, F>
+where
+    T: Deref,
+    F: Fn(&<T as Deref>::Target) -> &U,
+{
+    type Target = U;
+
+    #[inline]
+    fn deref(&self) -> &U {
+        (self.mapfn)(Deref::deref(&self.inner))
+    }
+}
+
+impl<T, U, F> RevisionRefTrait for MappedRevisionRef<T, F>
+where
+    T: RevisionRefTrait,
+    F: Fn(&<T as Deref>::Target) -> &U,
+{
+    #[inline(always)]
+    fn try_detach(this: &mut Self) -> Result<(), RevisionDetachError> {
+        RevisionRefTrait::try_detach(&mut this.inner)
+    }
+}
+
+impl<T, F> MappedRevisionRef<T, F> {
+    #[inline(always)]
+    pub fn into_inner(this: Self) -> T {
+        this.inner
     }
 }
 
