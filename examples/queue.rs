@@ -1,11 +1,9 @@
-use revenq::QueueInterface;
-
 fn main() {
-    use revenq::WokeQueue;
+    use revenq::Queue;
     use std::thread;
 
     loop {
-        let spt = |mut q: WokeQueue<u32>, publiv: Vec<u32>| {
+        let spt = |mut q: Queue<u32>, publiv: Vec<u32>| {
             thread::spawn(move || {
                 let mut c = Vec::new();
                 let plvl = publiv.len();
@@ -41,7 +39,7 @@ fn main() {
             })
         };
 
-        let q1 = WokeQueue::new();
+        let q1 = Queue::new();
         let q2 = q1.clone();
         let th1 = spt(q1, vec![1, 3]);
         let th2 = spt(q2, vec![2, 4]);

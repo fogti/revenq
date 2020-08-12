@@ -8,7 +8,7 @@ pub struct AtomSetOnce<T>(AtomicPtr<T>);
 
 impl<T> fmt::Debug for AtomSetOnce<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "atom({:?})", self.0.load(Ordering::Relaxed))
+        write!(f, "atom({:?})", self.0.load(Ordering::Acquire))
     }
 }
 
@@ -89,8 +89,8 @@ unsafe impl<T> stable_deref_trait::StableDeref for RevisionRef<T> {}
 unsafe impl<T> stable_deref_trait::CloneStableDeref for RevisionRef<T> {}
 
 impl<T> RevisionRef<T> {
-    pub(crate) fn new(nr: &NextRevision<T>, order: Ordering) -> Option<Self> {
-        ptr::NonNull::new(nr.0.load(order)).map(|rptr| {
+    pub(crate) fn new(nr: &NextRevision<T>) -> Option<Self> {
+        ptr::NonNull::new(nr.0.load(Ordering::Acquire)).map(|rptr| {
             let ret = Self {
                 inner: Arc::clone(&nr),
             };
@@ -105,10 +105,9 @@ impl<T> RevisionRef<T> {
     pub(crate) fn new_cas(
         latest: &mut NextRevision<T>,
         revnode: Box<RevisionNode<T>>,
-        order: Ordering,
     ) -> Option<(Self, Box<RevisionNode<T>>)> {
         let new = Box::into_raw(revnode);
-        let old = latest.0.compare_and_swap(ptr::null_mut(), new, order);
+        let old = latest.0.compare_and_swap(ptr::null_mut(), new, Ordering::AcqRel);
         let rptr = ptr::NonNull::new(old)?;
         let real_old: &RevisionNode<T> = unsafe { rptr.as_ref() };
 
@@ -129,7 +128,7 @@ impl<T> RevisionRef<T> {
 
     #[inline]
     fn deref_to_rn(this: &Self) -> &RevisionNode<T> {
-        unsafe { &*this.inner.0.load(Ordering::Relaxed) }
+        unsafe { &*this.inner.0.load(Ordering::Acquire) }
     }
 
     /// Try to detach this revision from the following.
@@ -166,7 +165,7 @@ where
 {
     let mut cur = start;
     let mut cnt = 0;
-    while let Some(x) = RevisionRef::new(&cur, Ordering::Relaxed) {
+    while let Some(x) = RevisionRef::new(&cur) {
         writeln!(&mut writer, "{} {}. {:?}", prefix, cnt, &*x)?;
         cur = RevisionRef::next(&x);
         cnt += 1;

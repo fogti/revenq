@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 
-use crate::{utils::*, QueueInterface};
-use std::{collections::VecDeque, sync::atomic::Ordering};
+use crate::utils::*;
+use event_listener::Event;
+use std::{collections::VecDeque, marker::Unpin};
 
 /// A simple event / revision queue
 #[derive(Debug)]
+#[must_use = "Queue does nothing unless you call .next() or some variation of it"]
 pub struct Queue<T> {
     // the $next field is partially shared, e.g. all queues derived from the same
     // original queue can find the current $next value, but may be a bit behind
@@ -13,7 +15,10 @@ pub struct Queue<T> {
     next: NextRevision<T>,
 
     // currently pending revisions
-    pending: VecDeque<T>,
+    pub pending: VecDeque<T>,
+
+    // waiting next... calls
+    next_ops: Arc<Event>,
 }
 
 impl<T> Clone for Queue<T> {
@@ -22,6 +27,7 @@ impl<T> Clone for Queue<T> {
         Queue {
             next: Arc::clone(&self.next),
             pending: Default::default(),
+            next_ops: Arc::clone(&self.next_ops),
         }
     }
 }
@@ -32,60 +38,106 @@ impl<T> Default for Queue<T> {
         Queue {
             next: Arc::new(AtomSetOnce::empty()),
             pending: Default::default(),
+            next_ops: Arc::new(Default::default()),
         }
     }
 }
+
+impl<T: Unpin> Unpin for Queue<T> {}
 
 impl<T: Send + 'static> Iterator for Queue<T> {
     type Item = RevisionRef<T>;
 
     fn next(&mut self) -> Option<RevisionRef<T>> {
-        while let Some(data) = self.pending.pop_front() {
-            // 1. prepare revision
-            let latest = Arc::new(AtomSetOnce::empty());
-            let revnode = Box::new(RevisionNode {
-                data,
-                next: Arc::clone(&latest),
-            });
+        fn intern_<T: Send + 'static>(this: &mut Queue<T>) -> Option<RevisionRef<T>> {
+            while let Some(data) = this.pending.pop_front() {
+                // 1. prepare revision
+                let latest = Arc::new(AtomSetOnce::empty());
+                let revnode = Box::new(RevisionNode {
+                    data,
+                    next: Arc::clone(&latest),
+                });
 
-            // 2. try to publish revision
-            // e.g. append to the first 'None' ptr in the 'latest' chain
-            if let Some((old, new)) =
-                RevisionRef::new_cas(&mut self.next, revnode, Ordering::AcqRel)
-            {
-                // publishing failed
-                self.pending.push_front((*new).data);
+                // 2. try to publish revision
+                // e.g. append to the first 'None' ptr in the 'latest' chain
+                if let Some((old, new)) =
+                    RevisionRef::new_cas(&mut this.next, revnode)
+                {
+                    // this publishing failed
+                    this.pending.push_front((*new).data);
 
-                // we discovered a new revision, return that
-                return Some(old);
+                    // we discovered a new revision, return that
+                    return Some(old);
+                }
+
+                // publishing succeeded
+                // RevisionRef::new_cas doesn't update this.next in that case
+                this.next = latest;
+                // continue publishing until another thread interrupts us
             }
 
-            // publishing succeeded
-            // RevisionRef::new_cas doesn't update self.next in that case
-            self.next = latest;
-            // continue publishing until another thread interrupts us
+            RevisionRef::new(&this.next).map(|x| {
+                this.next = RevisionRef::next(&x);
+                x
+            })
         }
 
-        debug_assert!(self.pending.is_empty());
+        let orig_pending_len = self.pending.len();
+        let ret = intern_(self);
 
-        RevisionRef::new(&self.next, Ordering::Relaxed).map(|x| {
-            self.next = RevisionRef::next(&x);
-            x
-        })
+        // may have published something
+        if orig_pending_len != self.pending.len() {
+            self.next_ops.notify(usize::MAX);
+        }
+
+        ret
     }
 }
 
-impl<T: Send + 'static> QueueInterface for Queue<T> {
-    type RevisionIn = T;
+impl<T: Send + 'static> Queue<T> {
+    /// Similiar to [`Queue::next_blocking`], but `async`.
+    /// Only returns `None` if no other reference to the queue
+    /// exists anymore, thus, otherwise nothing could wake this up.
+    pub async fn next_async(&mut self) -> Option<RevisionRef<T>> {
+        loop {
+            // put ourselves into the waiting list
+            let listener = self.next_ops.listen();
 
-    #[inline(always)]
-    fn pending(&self) -> &VecDeque<T> {
-        &self.pending
+            if let ret @ Some(_) = self.next() {
+                // we got something, return
+                return ret;
+            } else if Arc::get_mut(&mut self.next_ops).is_some() {
+                // cancel if no one is listening
+                return None;
+            } else {
+                listener.await;
+            }
+        }
     }
 
+    /// Similiar to [`next`](Iterator::next), but
+    /// waits for an event on the WokeQueue, until at least one event
+    /// (or event block) got ready.
+    /// Only returns None if no other reference to the queue exists anymore,
+    /// to prevent a deadlock, because nothing could wake this up.
     #[inline(always)]
-    fn pending_mut(&mut self) -> &mut VecDeque<T> {
-        &mut self.pending
+    pub fn next_blocking(&mut self) -> Option<RevisionRef<T>> {
+        futures_lite::future::block_on(self.next_async())
+    }
+
+    /// This method enqueues the pending revision for publishing.
+    /// The iterator **must** be "collected"/"polled"
+    /// (calling [`Iterator::next`] until it returns None) to publish them.
+    #[inline(always)]
+    pub fn enqueue(&mut self, pending: T) {
+        self.pending.push_back(pending);
+    }
+
+    /// Discards all newly published revisions and enforces publishing
+    /// of our pending revisions.
+    #[inline(always)]
+    pub fn skip_and_publish(&mut self) {
+        while self.next().is_some() {}
     }
 }
 
@@ -106,6 +158,13 @@ impl<T: std::fmt::Debug> Queue<T> {
     ) -> std::io::Result<()> {
         print_queue(&mut writer, Arc::clone(&self.next), prefix)?;
         writeln!(writer, "{} pending = {:?}", prefix, &self.pending)?;
+        writeln!(
+            writer,
+            "{} next_ops = {:?} x{}",
+            prefix,
+            &self.next_ops,
+            Arc::strong_count(&self.next_ops)
+        )?;
         Ok(())
     }
 }

@@ -1,5 +1,4 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use revenq::QueueInterface;
 
 fn queue_bench(c: &mut Criterion) {
     use revenq::Queue;
@@ -28,42 +27,12 @@ fn queue_bench(c: &mut Criterion) {
             l2.next();
         })
     });
-}
 
-fn woke_queue_bench(c: &mut Criterion) {
-    use revenq::WokeQueue;
-    use std::thread;
-
-    c.bench_function("woke-queue-simple", |b| {
+    c.bench_function("queue-blocking", |b| {
         b.iter(|| {
-            let mut q = WokeQueue::new();
-            q.enqueue(0);
-            q.skip_and_publish();
-            let mut l = q.clone();
-            l.next();
-            q.enqueue(1);
-            q.skip_and_publish();
-            l.next();
-        })
-    });
-
-    c.bench_function("woke-queue-multi", |b| {
-        b.iter(|| {
-            let mut q = WokeQueue::new();
-            let mut l1 = q.clone();
-            let mut l2 = q.clone();
-
-            q.enqueue(0);
-            q.skip_and_publish();
-            l1.next();
-            l2.next();
-        })
-    });
-
-    c.bench_function("woke-queue-blocking", |b| {
-        b.iter(|| {
-            let spt = |mut q: WokeQueue<u32>, publiv: &[u32]| {
-                *q.pending_mut() = publiv.iter().map(|i| *i).collect();
+            use std::thread;
+            let spt = |mut q: Queue<u32>, publiv: &[u32]| {
+                q.pending = publiv.iter().map(|i| *i).collect();
                 let plvl = publiv.len();
                 thread::spawn(move || {
                     let mut c = Vec::with_capacity(plvl);
@@ -76,7 +45,7 @@ fn woke_queue_bench(c: &mut Criterion) {
                 })
             };
 
-            let q1 = WokeQueue::new();
+            let q1 = Queue::new();
             let q2 = q1.clone();
             let th1 = spt(q1, &[1, 3]);
             let th2 = spt(q2, &[2, 4]);
@@ -86,5 +55,5 @@ fn woke_queue_bench(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, queue_bench, woke_queue_bench);
+criterion_group!(benches, queue_bench);
 criterion_main!(benches);
