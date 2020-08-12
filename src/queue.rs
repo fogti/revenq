@@ -108,7 +108,15 @@ impl<T: Send + 'static> Queue<T> {
                 return ret;
             } else if Arc::get_mut(&mut self.next_ops).is_some() {
                 // cancel if no one is listening
-                return None;
+                // skip publishing + notifying phase bc no one is listening
+                // we need to re-check to catch a race-condition between
+                // the call to $self.next and the check of $self.next_ops
+                // in between other queue instances may have been destroyed,
+                // but messages are still in the queue.
+                return RevisionRef::new(&self.next).map(|x| {
+                    self.next = RevisionRef::next(&x);
+                    x
+                });
             } else {
                 listener.await;
             }
