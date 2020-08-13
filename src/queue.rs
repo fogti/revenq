@@ -1,8 +1,9 @@
 #![forbid(unsafe_code)]
 
 use crate::utils::*;
+use alloc::collections::VecDeque;
+use core::marker::Unpin;
 use event_listener::Event;
-use std::{collections::VecDeque, marker::Unpin};
 
 /// A simple event / revision queue
 #[derive(Debug)]
@@ -60,9 +61,7 @@ impl<T: Send + 'static> Iterator for Queue<T> {
 
                 // 2. try to publish revision
                 // e.g. append to the first 'None' ptr in the 'latest' chain
-                if let Some((old, new)) =
-                    RevisionRef::new_cas(&mut this.next, revnode)
-                {
+                if let Some((old, new)) = RevisionRef::new_cas(&mut this.next, revnode) {
                     // this publishing failed
                     this.pending.push_front((*new).data);
 
@@ -156,6 +155,7 @@ impl<T> Queue<T> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<T: std::fmt::Debug> Queue<T> {
     /// Helper function, prints all unprocessed, newly published revisions
     #[cold]

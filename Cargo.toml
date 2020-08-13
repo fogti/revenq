@@ -1,13 +1,17 @@
 [package]
 name = "revenq"
 description = "A concurrent, revision-based event queue implementation"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Erik Zscheile <zseri.devel@ytrizja.de>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/reclutch-nursery/revenq"
 readme = "README.md"
 exclude = ["/.github/", "Cargo.toml"]
+
+[features]
+default = []
+std = []
 
 [dependencies]
 event-listener = "2.2"
@@ -27,3 +31,4 @@ harness = false
 
 [[example]]
 name = "queue"
+required-features = ["std"]

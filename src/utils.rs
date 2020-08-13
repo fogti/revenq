@@ -1,6 +1,6 @@
-use std::sync::atomic::{AtomicPtr, Ordering};
-pub use std::sync::Arc;
-use std::{fmt, mem, ptr};
+pub use alloc::{boxed::Box, sync::Arc};
+use core::sync::atomic::{AtomicPtr, Ordering};
+use core::{fmt, mem, ptr};
 
 /// An AtomSetOnce wraps an AtomicPtr, it allows for safe mutation of an atomic
 /// into common Rust Types.
@@ -61,6 +61,7 @@ impl fmt::Display for RevisionDetachError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for RevisionDetachError {}
 
 impl<T> Clone for RevisionRef<T> {
@@ -71,7 +72,7 @@ impl<T> Clone for RevisionRef<T> {
     }
 }
 
-impl<T> std::ops::Deref for RevisionRef<T> {
+impl<T> core::ops::Deref for RevisionRef<T> {
     type Target = T;
 
     #[inline]
@@ -107,7 +108,9 @@ impl<T> RevisionRef<T> {
         revnode: Box<RevisionNode<T>>,
     ) -> Option<(Self, Box<RevisionNode<T>>)> {
         let new = Box::into_raw(revnode);
-        let old = latest.0.compare_and_swap(ptr::null_mut(), new, Ordering::AcqRel);
+        let old = latest
+            .0
+            .compare_and_swap(ptr::null_mut(), new, Ordering::AcqRel);
         let rptr = ptr::NonNull::new(old)?;
         let real_old: &RevisionNode<T> = unsafe { rptr.as_ref() };
 
@@ -123,7 +126,7 @@ impl<T> RevisionRef<T> {
 
     #[inline]
     fn check_against_rptr(this: &Self, rptr: ptr::NonNull<RevisionNode<T>>) {
-        assert!(std::ptr::eq(&**this, &unsafe { rptr.as_ref() }.data));
+        assert!(ptr::eq(&**this, &unsafe { rptr.as_ref() }.data));
     }
 
     #[inline]
@@ -157,6 +160,7 @@ impl<T> RevisionRef<T> {
 }
 
 /// This is a helper function to debug queues.
+#[cfg(feature = "std")]
 #[cold]
 pub fn print_queue<W, T>(mut writer: W, start: NextRevision<T>, prefix: &str) -> std::io::Result<()>
 where
