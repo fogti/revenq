@@ -44,65 +44,19 @@ impl<T> Default for Queue<T> {
 
 impl<T: Unpin> Unpin for Queue<T> {}
 
-fn next_intern_<T: Send + 'static>(this: &mut Queue<T>) -> Option<RevisionRef<T>> {
-    while let Some(data) = this.pending.pop_front() {
-        // 1. prepare revision
-        let latest = Arc::new(AtomSetOnce::empty());
-        let revnode = Box::new(RevisionNode {
-            data,
-            next: Arc::clone(&latest),
-        });
-
-        // 2. try to publish revision
-        // e.g. append to the first 'None' ptr in the 'latest' chain
-
-        // try to append revnode, if CAS succeeds, continue, otherwise:
-        // return a RevisionRef for the failed CAS ptr, and the revnode;
-        // set $latest to the next ptr
-
-        let new = Box::into_raw(revnode);
-        let old = this
-            .next
-            .0
-            .compare_and_swap(ptr::null_mut(), new, Ordering::AcqRel);
-
-        if let Some(rptr) = ptr::NonNull::new(old) {
-            let real_old: &RevisionNode<T> = unsafe { rptr.as_ref() };
-
-            let old = RevisionRef {
-                // This is safe since ptr cannot be changed once it is set
-                // which means that this is now a Box.
-                // use the next revision
-                inner: mem::replace(&mut this.next, Arc::clone(&real_old.next)),
-            };
-            RevisionRef::check_against_rptr(&old, rptr);
-
-            // this publishing failed
-            this.pending
-                .push_front((*unsafe { Box::from_raw(new) }).data);
-
-            // we discovered a new revision, return that
-            return Some(old);
-        }
-
-        // publishing succeeded
-        // RevisionRef::new_cas doesn't update this.next in that case
-        this.next = latest;
-        // continue publishing until another thread interrupts us
-    }
-
-    RevisionRef::new(&this.next).map(|x| {
-        this.next = RevisionRef::next(&x);
-        x
-    })
-}
-
 impl<T: Send + 'static> Iterator for Queue<T> {
     type Item = RevisionRef<T>;
 
     fn next(&mut self) -> Option<RevisionRef<T>> {
         let orig_pending_len = self.pending.len();
-        let ret = next_intern_(self);
+
+        let ret = match self.publish_intern() {
+            None => RevisionRef::new(&self.next).map(|x| {
+                self.next = RevisionRef::next(&x);
+                x
+            }),
+            x => x,
+        };
 
         // may have published something
         if orig_pending_len != self.pending.len() {
@@ -114,6 +68,55 @@ impl<T: Send + 'static> Iterator for Queue<T> {
 }
 
 impl<T: Send + 'static> Queue<T> {
+    fn publish_intern(&mut self) -> Option<RevisionRef<T>> {
+        while let Some(data) = self.pending.pop_front() {
+            // 1. prepare revision
+            let latest = Arc::new(AtomSetOnce::empty());
+            let revnode = Box::new(RevisionNode {
+                data,
+                next: Arc::clone(&latest),
+            });
+
+            // 2. try to publish revision
+            // e.g. append to the first 'None' ptr in the 'latest' chain
+
+            // try to append revnode, if CAS succeeds, continue, otherwise:
+            // return a RevisionRef for the failed CAS ptr, and the revnode;
+            // set $latest to the next ptr
+
+            let new = Box::into_raw(revnode);
+            let old = self
+                .next
+                .0
+                .compare_and_swap(ptr::null_mut(), new, Ordering::AcqRel);
+
+            if let Some(rptr) = ptr::NonNull::new(old) {
+                let real_old: &RevisionNode<T> = unsafe { rptr.as_ref() };
+
+                let old = RevisionRef {
+                    // This is safe since ptr cannot be changed once it is set
+                    // which means that this is now a Box.
+                    // use the next revision
+                    inner: mem::replace(&mut self.next, Arc::clone(&real_old.next)),
+                };
+                RevisionRef::check_against_rptr(&old, rptr);
+
+                // this publishing failed
+                self.pending
+                    .push_front((*unsafe { Box::from_raw(new) }).data);
+
+                // we discovered a new revision, return that
+                return Some(old);
+            }
+
+            // publishing succeeded
+            // RevisionRef::new_cas doesn't update self.next in that case
+            self.next = latest;
+            // continue publishing until another thread interrupts us
+        }
+        None
+    }
+
     /// Waits asynchronously for an event to be published on the queue.
     /// Only returns `None` if no other reference to the queue
     /// exists anymore, because otherwise nothing could wake this up.
