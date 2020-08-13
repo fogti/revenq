@@ -158,21 +158,3 @@ impl<T> RevisionRef<T> {
         Arc::clone(&Self::deref_to_rn(this).next)
     }
 }
-
-/// This is a helper function to debug queues.
-#[cfg(feature = "std")]
-#[cold]
-pub fn print_queue<W, T>(mut writer: W, start: NextRevision<T>, prefix: &str) -> std::io::Result<()>
-where
-    W: std::io::Write,
-    T: fmt::Debug,
-{
-    let mut cur = start;
-    let mut cnt = 0;
-    while let Some(x) = RevisionRef::new(&cur) {
-        writeln!(&mut writer, "{} {}. {:?}", prefix, cnt, &*x)?;
-        cur = RevisionRef::next(&x);
-        cnt += 1;
-    }
-    Ok(())
-}

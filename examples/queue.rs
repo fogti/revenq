@@ -16,7 +16,7 @@ fn main() {
                         &format!("{:?} |+", std::thread::current().id()),
                     )
                     .unwrap();
-                    match q.next_blocking() {
+                    match futures_lite::future::block_on(q.next_async()) {
                         Some(x) => c.push(*x),
                         None => {
                             println!("{:?} | ouch; c = {:?}", std::thread::current().id(), c);

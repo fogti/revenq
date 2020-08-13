@@ -15,11 +15,11 @@ pub struct Queue<T> {
     //  which should be iterated to get the current value)
     next: NextRevision<T>,
 
-    // currently pending revisions
-    pub pending: VecDeque<T>,
-
     // waiting next... calls
     next_ops: Arc<Event>,
+
+    // currently pending revisions
+    pub pending: VecDeque<T>,
 }
 
 impl<T> Clone for Queue<T> {
@@ -27,8 +27,8 @@ impl<T> Clone for Queue<T> {
     fn clone(&self) -> Self {
         Queue {
             next: Arc::clone(&self.next),
-            pending: Default::default(),
             next_ops: Arc::clone(&self.next_ops),
+            pending: Default::default(),
         }
     }
 }
@@ -38,8 +38,8 @@ impl<T> Default for Queue<T> {
     fn default() -> Self {
         Queue {
             next: Arc::new(AtomSetOnce::empty()),
-            pending: Default::default(),
             next_ops: Arc::new(Default::default()),
+            pending: Default::default(),
         }
     }
 }
@@ -94,9 +94,10 @@ impl<T: Send + 'static> Iterator for Queue<T> {
 }
 
 impl<T: Send + 'static> Queue<T> {
-    /// Similiar to [`Queue::next_blocking`], but `async`.
+    /// Waits asynchronously for an event to be published on the queue.
     /// Only returns `None` if no other reference to the queue
-    /// exists anymore, thus, otherwise nothing could wake this up.
+    /// exists anymore, because otherwise nothing could wake this up.
+    /// Tries to publish pending revisions while waiting.
     pub async fn next_async(&mut self) -> Option<RevisionRef<T>> {
         loop {
             // put ourselves into the waiting list
@@ -122,29 +123,12 @@ impl<T: Send + 'static> Queue<T> {
         }
     }
 
-    /// Similiar to [`next`](Iterator::next), but
-    /// waits for an event on the WokeQueue, until at least one event
-    /// (or event block) got ready.
-    /// Only returns None if no other reference to the queue exists anymore,
-    /// to prevent a deadlock, because nothing could wake this up.
-    #[inline(always)]
-    pub fn next_blocking(&mut self) -> Option<RevisionRef<T>> {
-        futures_lite::future::block_on(self.next_async())
-    }
-
     /// This method enqueues the pending revision for publishing.
     /// The iterator **must** be "collected"/"polled"
     /// (calling [`Iterator::next`] until it returns None) to publish them.
     #[inline(always)]
     pub fn enqueue(&mut self, pending: T) {
         self.pending.push_back(pending);
-    }
-
-    /// Discards all newly published revisions and enforces publishing
-    /// of our pending revisions.
-    #[inline(always)]
-    pub fn skip_and_publish(&mut self) {
-        while self.next().is_some() {}
     }
 }
 
@@ -164,7 +148,14 @@ impl<T: std::fmt::Debug> Queue<T> {
         mut writer: W,
         prefix: &str,
     ) -> std::io::Result<()> {
-        print_queue(&mut writer, Arc::clone(&self.next), prefix)?;
+        #[cold]
+        let mut cur = Arc::clone(&self.next);
+        let mut cnt = 0;
+        while let Some(x) = RevisionRef::new(&cur) {
+            writeln!(&mut writer, "{} {}. {:?}", prefix, cnt, &*x)?;
+            cur = RevisionRef::next(&x);
+            cnt += 1;
+        }
         writeln!(writer, "{} pending = {:?}", prefix, &self.pending)?;
         writeln!(
             writer,

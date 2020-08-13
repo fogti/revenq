@@ -7,11 +7,15 @@ where
     rv.map(|i| *i).sum()
 }
 
+fn skip_and_publish<T: Send + 'static>(q: &mut Queue<T>) {
+    while q.next().is_some() {}
+}
+
 #[test]
 fn simple() {
     let mut q = Queue::new();
     q.enqueue(vec![0]);
-    q.skip_and_publish();
+    skip_and_publish(&mut q);
 
     let mut l = q.clone();
     let mut marker = Vec::new();
@@ -19,7 +23,7 @@ fn simple() {
     assert!(marker.is_empty());
 
     q.enqueue(vec![1]);
-    q.skip_and_publish();
+    skip_and_publish(&mut q);
 
     marker.extend((&mut l).map(|i| (*i).clone()).flatten());
     assert_eq!(marker, [1]);
@@ -33,7 +37,7 @@ fn multi() {
 
     q.enqueue(0);
     q.enqueue(1);
-    q.skip_and_publish();
+    skip_and_publish(&mut q);
 
     let mut marker = Vec::new();
     marker.extend(l1.map(|i| *i));
@@ -72,14 +76,14 @@ fn multithreaded() {
     let th1 = spt(&q);
     let th2 = spt(&q);
     q.enqueue(1);
-    q.skip_and_publish();
+    skip_and_publish(&mut q);
     thread::sleep(Duration::from_millis(60));
     q.enqueue(2);
-    q.skip_and_publish();
+    skip_and_publish(&mut q);
     thread::sleep(Duration::from_millis(30));
     q.enqueue(3);
     q.enqueue(4);
-    q.skip_and_publish();
+    skip_and_publish(&mut q);
     th1.join().unwrap();
     th2.join().unwrap();
 }
@@ -144,12 +148,14 @@ fn blocking() {
             for i in publiv {
                 q.enqueue(i);
             }
-            while c.len() < plvl {
-                match q.next_blocking() {
-                    Some(x) => c.push(*x),
-                    None => break,
+            futures_lite::future::block_on(async {
+                while c.len() < plvl {
+                    match q.next_async().await {
+                        Some(x) => c.push(*x),
+                        None => break,
+                    }
                 }
-            }
+            });
             c.extend((&mut q).map(|i| *i));
             c
         })

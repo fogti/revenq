@@ -1,16 +1,21 @@
 use criterion::{criterion_group, criterion_main, Criterion};
+use revenq::Queue;
+
+#[inline]
+fn skip_and_publish<T: Send + 'static>(q: &mut Queue<T>) {
+    while q.next().is_some() {}
+}
 
 fn queue_bench(c: &mut Criterion) {
-    use revenq::Queue;
     c.bench_function("queue-simple", |b| {
         b.iter(|| {
             let mut q = Queue::new();
             q.enqueue(0);
-            q.skip_and_publish();
+            skip_and_publish(&mut q);
             let mut l = q.clone();
             l.next();
             q.enqueue(1);
-            q.skip_and_publish();
+            skip_and_publish(&mut q);
             l.next();
         })
     });
@@ -22,7 +27,7 @@ fn queue_bench(c: &mut Criterion) {
             let mut l2 = q.clone();
 
             q.enqueue(0);
-            q.skip_and_publish();
+            skip_and_publish(&mut q);
             l1.next();
             l2.next();
         })
@@ -37,7 +42,7 @@ fn queue_bench(c: &mut Criterion) {
                 thread::spawn(move || {
                     let mut c = Vec::with_capacity(plvl);
                     while c.len() < plvl {
-                        if let Some(x) = q.next_blocking() {
+                        if let Some(x) = futures_lite::future::block_on(q.next_async()) {
                             c.push(*x);
                         }
                     }

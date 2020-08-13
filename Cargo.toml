@@ -1,7 +1,7 @@
 [package]
 name = "revenq"
 description = "A concurrent, revision-based event queue implementation"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Erik Zscheile <zseri.devel@ytrizja.de>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
@@ -15,7 +15,6 @@ std = []
 
 [dependencies]
 event-listener = "2.2"
-futures-lite = "0.1"
 
 [dependencies.stable_deref_trait]
 version = "1"
@@ -24,6 +23,7 @@ optional = true
 
 [dev-dependencies]
 criterion = "0.3"
+futures-lite = "0.1"
 
 [[bench]]
 name = "queue"
