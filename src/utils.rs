@@ -1,10 +1,10 @@
 pub use alloc::{boxed::Box, sync::Arc};
 use core::sync::atomic::{AtomicPtr, Ordering};
-use core::{fmt, mem, ptr};
+use core::{fmt, ptr};
 
 /// An AtomSetOnce wraps an AtomicPtr, it allows for safe mutation of an atomic
 /// into common Rust Types.
-pub struct AtomSetOnce<T>(AtomicPtr<T>);
+pub struct AtomSetOnce<T>(pub(crate) AtomicPtr<T>);
 
 impl<T> fmt::Debug for AtomSetOnce<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
@@ -48,7 +48,7 @@ pub struct RevisionNode<T> {
 /// revisions will be leaked, too, and thus the memory of the queue is never freed.
 #[derive(Debug)]
 pub struct RevisionRef<T> {
-    inner: NextRevision<T>,
+    pub(crate) inner: NextRevision<T>,
 }
 
 /// Error indicating a failed [`RevisionRef::try_detach`] call.
@@ -100,33 +100,9 @@ impl<T> RevisionRef<T> {
         })
     }
 
-    /// try to append revnode, if CAS succeeds, return None, otherwise:
-    /// return a RevisionRef for the failed CAS ptr, and the revnode;
-    /// set $latest to the next ptr
-    pub(crate) fn new_cas(
-        latest: &mut NextRevision<T>,
-        revnode: Box<RevisionNode<T>>,
-    ) -> Option<(Self, Box<RevisionNode<T>>)> {
-        let new = Box::into_raw(revnode);
-        let old = latest
-            .0
-            .compare_and_swap(ptr::null_mut(), new, Ordering::AcqRel);
-        let rptr = ptr::NonNull::new(old)?;
-        let real_old: &RevisionNode<T> = unsafe { rptr.as_ref() };
-
-        let ret_self = Self {
-            // This is safe since ptr cannot be changed once it is set
-            // which means that this is now a Box.
-            // use the next revision
-            inner: mem::replace(latest, Arc::clone(&real_old.next)),
-        };
-        Self::check_against_rptr(&ret_self, rptr);
-        Some((ret_self, unsafe { Box::from_raw(new) }))
-    }
-
-    #[inline]
-    fn check_against_rptr(this: &Self, rptr: ptr::NonNull<RevisionNode<T>>) {
-        assert!(ptr::eq(&**this, &unsafe { rptr.as_ref() }.data));
+    #[inline(always)]
+    pub(crate) fn check_against_rptr(this: &Self, rptr: ptr::NonNull<RevisionNode<T>>) {
+        debug_assert!(ptr::eq(&**this, &unsafe { rptr.as_ref() }.data));
     }
 
     #[inline]
