@@ -173,18 +173,23 @@ impl<T: std::fmt::Debug> Queue<T> {
     ) -> std::io::Result<()> {
         #[cold]
         let mut cur = Arc::clone(&self.next);
-        let mut cnt = 0;
+        let mut fi = true;
+        let mut tmpstr = String::new();
         while let Some(x) = RevisionRef::new(&cur) {
-            writeln!(&mut writer, "{} {}. {:?}", prefix, cnt, &*x)?;
+            if !fi {
+                tmpstr.push(',');
+                tmpstr.push(' ');
+            }
+            tmpstr += &format!("{:?}", &*x);
             cur = RevisionRef::next(&x);
-            cnt += 1;
+            fi = false;
         }
-        writeln!(writer, "{} pending = {:?}", prefix, &self.pending)?;
         writeln!(
             writer,
-            "{} next_ops = {:?} x{}",
+            "{} [{}] pending = {:?}; next_ops x{}",
             prefix,
-            &self.next_ops,
+            tmpstr,
+            &self.pending,
             Arc::strong_count(&self.next_ops)
         )?;
         Ok(())
