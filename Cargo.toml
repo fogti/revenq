@@ -23,10 +23,21 @@ default-features = false
 
 [dev-dependencies]
 criterion = "0.3"
+crossbeam-channel = "0.4"
 futures-lite = "0.1"
+
+[dev-dependencies.reclutch_event]
+version = "0.0"
+git = "https://github.com/jazzfool/reclutch"
+package = "reclutch_event"
+features = ["crossbeam-channel"]
 
 [[bench]]
 name = "queue"
+harness = false
+
+[[bench]]
+name = "reclutch"
 harness = false
 
 [[example]]
