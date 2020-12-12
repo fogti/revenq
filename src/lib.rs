@@ -196,37 +196,47 @@ impl<T> Queue<T> {
     }
 
     fn publish_intern(&mut self) -> Option<RevisionRef<T>> {
+        enum State<T> {
+            ToPublish { data: T },
+            Published { latest: NextRevision<T> },
+        }
+
         while let Some(data) = self.pending.pop_front() {
-            // 1. prepare revision
-            let latest = Arc::new(OnceCell::default());
-            let mut revnode = Some(RevisionNode {
-                data,
-                next: Arc::clone(&latest),
-            });
-
-            // 2. try to publish revision
-            // e.g. append to the first 'None' ptr in the 'latest' chain
-
+            // : try append to the first 'None' ptr in the 'latest' chain
             // try to append revnode, if CAS succeeds, continue, otherwise:
             // return a RevisionRef for the failed CAS ptr, and the revnode;
             // set $latest to the next ptr
 
-            let maybe_real_old = self.next.get_or_init(|| revnode.take().unwrap());
-            match revnode {
-                None => {
+            let mut state = State::ToPublish { data };
+            let maybe_real_old = self.next.get_or_init(|| {
+                let latest = Arc::new(OnceCell::default());
+                if let State::ToPublish { data } = core::mem::replace(
+                    &mut state,
+                    State::Published {
+                        latest: Arc::clone(&latest),
+                    },
+                ) {
+                    RevisionNode {
+                        data,
+                        next: Arc::clone(&latest),
+                    }
+                } else {
+                    unreachable!();
+                }
+            });
+            match state {
+                State::Published { latest } => {
                     // CAS / publishing succeeded
                     self.next = latest;
                     // continue publishing until another thread interrupts us
                 }
-                Some(new) => {
+                State::ToPublish { data } => {
                     // CAS failed
-                    let real_old = maybe_real_old;
-
                     // we need to split this assignment to prevent rustc E0502
-                    let new_next = Arc::clone(&real_old.next);
+                    let new_next = Arc::clone(&maybe_real_old.next);
 
                     // this publishing failed
-                    self.pending.push_front(new.data);
+                    self.pending.push_front(data);
 
                     // we discovered a new revision, return that
                     return Some(RevisionRef {

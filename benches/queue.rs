@@ -20,6 +20,14 @@ fn queue_bench(c: &mut Criterion) {
         })
     });
 
+    c.bench_function("queue-send", |b| {
+        b.iter(|| {
+            let mut q = Queue::new();
+            q.enqueue(0);
+            q.next();
+        })
+    });
+
     c.bench_function("queue-multi", |b| {
         b.iter(|| {
             let mut q = Queue::new();
