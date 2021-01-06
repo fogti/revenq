@@ -9,15 +9,25 @@ have a [size known at compile time](core::marker::Sized)
 **/
 
 #![forbid(clippy::as_conversions, clippy::cast_ptr_alignment, trivial_casts)]
-#![cfg_attr(not(feature = "std"), no_std)]
+
+// once_cell doesn't support no_std in the used flavor.
+// #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 extern crate core;
 
-use alloc::{collections::VecDeque, sync::Arc};
+use alloc::{sync::Arc, vec::Vec};
 use core::{fmt, marker::Unpin};
 use event_listener::Event;
 use once_cell::sync::OnceCell;
+
+fn perfect_unreachable() -> ! {
+    if core::cfg!(debug_assertions) {
+        unreachable!()
+    } else {
+        unsafe { core::hint::unreachable_unchecked() }
+    }
+}
 
 type NextRevision<T> = Arc<OnceCell<RevisionNode<T>>>;
 
@@ -46,7 +56,7 @@ impl fmt::Display for RevisionDetachError {
     }
 }
 
-#[cfg(feature = "std")]
+// #[cfg(feature = "std")]
 impl std::error::Error for RevisionDetachError {}
 
 impl<T> Clone for RevisionRef<T> {
@@ -134,7 +144,7 @@ pub struct Queue<T> {
     next_ops: Arc<Event>,
 
     // currently pending revisions
-    pub pending: VecDeque<T>,
+    pub pending: Vec<T>,
 }
 
 impl<T> Clone for Queue<T> {
@@ -197,57 +207,65 @@ impl<T> Queue<T> {
 
     fn publish_intern(&mut self) -> Option<RevisionRef<T>> {
         enum State<T> {
-            ToPublish { data: T },
+            ToPublish { rest: Vec<T>, last: T },
             Published { latest: NextRevision<T> },
         }
 
-        while let Some(data) = self.pending.pop_front() {
-            // : try append to the first 'None' ptr in the 'latest' chain
-            // try to append revnode, if CAS succeeds, continue, otherwise:
-            // return a RevisionRef for the failed CAS ptr, and the revnode;
-            // set $latest to the next ptr
+        let last = self.pending.pop()?;
 
-            let mut state = State::ToPublish { data };
-            let maybe_real_old = self.next.get_or_init(|| {
-                let latest = Arc::new(OnceCell::default());
-                if let State::ToPublish { data } = core::mem::replace(
-                    &mut state,
-                    State::Published {
-                        latest: Arc::clone(&latest),
-                    },
-                ) {
-                    RevisionNode {
-                        data,
-                        next: Arc::clone(&latest),
-                    }
-                } else {
-                    unreachable!();
-                }
-            });
-            match state {
-                State::Published { latest } => {
-                    // CAS / publishing succeeded
-                    self.next = latest;
-                    // continue publishing until another thread interrupts us
-                }
-                State::ToPublish { data } => {
-                    // CAS failed
-                    // we need to split this assignment to prevent rustc E0502
-                    let new_next = Arc::clone(&maybe_real_old.next);
+        // : try append to the first 'None' ptr in the 'latest' chain
+        // try to append revnode, if CAS succeeds, done, otherwise:
+        // return a RevisionRef for the failed CAS ptr, and the revnode;
+        // set $latest to the next ptr
 
-                    // this publishing failed
-                    self.pending.push_front(data);
+        let mut state = State::ToPublish {
+            rest: core::mem::take(&mut self.pending),
+            last,
+        };
+        let maybe_real_old = self.next.get_or_init(|| {
+            let latest = Arc::new(OnceCell::default());
+            if let State::ToPublish { rest, last } = core::mem::replace(
+                &mut state,
+                State::Published {
+                    latest: Arc::clone(&latest),
+                },
+            ) {
+                // unpack the last one, so we get a node not wrapped in a Arc<OnceCell<_>>
+                let prela = RevisionNode {
+                    data: last,
+                    next: latest,
+                };
+                rest.into_iter().rev().fold(prela, |next, i| RevisionNode {
+                    data: i,
+                    next: Arc::new(OnceCell::from(next)),
+                })
+            } else {
+                perfect_unreachable()
+            }
+        });
+        match state {
+            State::Published { latest } => {
+                // CAS / publishing succeeded
+                self.next = latest;
+                None
+            }
+            State::ToPublish { mut rest, last } => {
+                // CAS failed
+                // we need to split this assignment to prevent rustc E0502
+                let new_next = Arc::clone(&maybe_real_old.next);
 
-                    // we discovered a new revision, return that
-                    return Some(RevisionRef {
-                        // This is safe since the cell cannot be changed once it is set.
-                        // use the next revision
-                        inner: core::mem::replace(&mut self.next, new_next),
-                    });
-                }
+                // this publishing failed
+                rest.push(last);
+                self.pending = rest;
+
+                // we discovered a new revision, return that
+                Some(RevisionRef {
+                    // This is safe since the cell cannot be changed once it is set.
+                    // use the next revision
+                    inner: core::mem::replace(&mut self.next, new_next),
+                })
             }
         }
-        None
     }
 
     /// Waits asynchronously for an event to be published on the queue.
@@ -281,11 +299,11 @@ impl<T> Queue<T> {
     /// (calling [`Iterator::next`] until it returns None) to publish them.
     #[inline(always)]
     pub fn enqueue(&mut self, pending: T) {
-        self.pending.push_back(pending);
+        self.pending.push(pending);
     }
 }
 
-#[cfg(feature = "std")]
+// #[cfg(feature = "std")]
 impl<T: std::fmt::Debug> Queue<T> {
     /// Helper function, prints all unprocessed, newly published revisions
     #[cold]
@@ -294,7 +312,6 @@ impl<T: std::fmt::Debug> Queue<T> {
         mut writer: W,
         prefix: &str,
     ) -> std::io::Result<()> {
-        #[cold]
         let mut cur = Arc::clone(&self.next);
         let mut fi = true;
         let mut tmpstr = String::new();
