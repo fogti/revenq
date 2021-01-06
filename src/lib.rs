@@ -273,12 +273,13 @@ impl<T> Queue<T> {
     /// exists anymore, because otherwise nothing could wake this up.
     /// Tries to publish pending revisions while waiting.
     pub async fn next_async(&mut self) -> Option<RevisionRef<T>> {
-        loop {
-            // put ourselves into the waiting list
-            let listener = self.next_ops.listen();
+        let mut listener = None;
 
+        loop {
             if let ret @ Some(_) = self.next() {
                 // we got something, return
+                // notify another blocked receive operation
+                self.next_ops.notify(1);
                 return ret;
             } else if Arc::get_mut(&mut self.next_ops).is_some() {
                 // cancel if no one is listening
@@ -289,7 +290,16 @@ impl<T> Queue<T> {
                 // but messages are still in the queue.
                 return RevisionRef::new_and_forward(&mut self.next);
             } else {
-                listener.await;
+                match listener.take() {
+                    None => {
+                        // Start listening and then try receiving again.
+                        listener = Some(self.next_ops.listen());
+                    }
+                    Some(l) => {
+                        // Wait for a notification.
+                        l.await;
+                    }
+                }
             }
         }
     }
