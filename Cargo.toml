@@ -2,7 +2,7 @@
 name = "revenq"
 description = "A concurrent, revision-based event queue implementation"
 version = "0.4.1"
-authors = ["Erik Zscheile <zseri.devel@ytrizja.de>"]
+authors = ["Alain Zscheile <fogti+devel@ytrizja.de>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/reclutch-nursery/revenq"
